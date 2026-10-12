@@ -7,3 +7,4 @@ dist/
 tools/.seq
 tools/last-run.txt
 tools/rig.json
+tools/savebackups/

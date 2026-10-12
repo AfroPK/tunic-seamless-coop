@@ -1,0 +1,47 @@
+name: Bug report
+description: Something doesn't work or desyncs in co-op
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! The details below make it possible to reproduce the problem.
+        **Please don't post IP addresses or join codes** (they reveal where you are).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead? Which area (e.g. Overworld, East Forest)?
+    validations:
+      required: true
+  - type: input
+    id: mod
+    attributes:
+      label: Mod version
+      description: Shown at the bottom of the F1 menu (e.g. 0.2.0)
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: TUNIC version and store
+      description: Also at the bottom of the F1 menu (e.g. "1.0 (Steam)"). Do all players have the same?
+    validations:
+      required: true
+  - type: dropdown
+    id: players
+    attributes:
+      label: Players in the session
+      options: ["2", "3", "4", "5-8"]
+  - type: dropdown
+    id: role
+    attributes:
+      label: Were you the host or a client?
+      options: [Host, Client, Both had the problem]
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Attach `BepInEx/LogOutput.log` from your TUNIC folder (drag the file here). From every player if you can.
+        Run streamer mode or remove lines with addresses if you're worried about privacy.

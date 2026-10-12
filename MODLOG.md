@@ -270,3 +270,32 @@ TODO: scene transitions (cross-scene ownership/puppets), player death/respawn in
 - Downed player's CameraController Update/FixedUpdate are wrapped to offset the camera onto the spectated puppet (Left/Right cycles).
 - Teammates within 2.5 m for ReviveSeconds send Revive; the downed player stands up at ReviveHealthPercent. All down / hold F2 => real death via bypassed ReceiveDamage.
 - Covered by Test-Revive (tools/suite.ps1).
+
+## 0.2.0: bosses, host rules, regroup, connectivity
+- Bosses: TUNIC's dev warp (Cheats.CheatWarpToPortal(scene, portal FullID)) puts players straight into arenas for tests;
+  plain DepartToScene from another area has no arrival portal and drops the fox into the void.
+- Boss detection: type list (Spidertank, Librarian, ScavengerBoss, Knightbot, Foxgod, CryptBoss, TunicKnightVoid),
+  maxhp >= 300, or a BossAnnounceOnAggro pointing at it (the Guard Captain is a 50 hp Skuladin). Once engaged
+  (hp < max or aggroed) a boss is never handed off: its phase state only exists on the owner.
+- Mirror damage is only forwarded if the local player pressed an attack/item button in the last 3 s; the mirror boss
+  replays its own attacks locally and its explosions were hurting itself (double damage on the owner).
+- Runtime spawns (no RuntimeStableID): announced by whoever's game spawned them under a negative id; others pair them
+  with their own copy (same name, nearest) or instantiate one from a same-named monster/prefab. Under a boss owned by
+  someone else, local spawns are replays: paired or hidden. Simultaneous announcements: lower player id wins, the
+  other retracts.
+- Late wake: pre-placed monsters activated by a trigger in one game (Cathedral altar waves, ambushes) are claimed by
+  that machine; others wake their inactive copy. Inactive objects never ran Awake: Monster.runtimeStableID is null and
+  the id isn't computed, so read the RuntimeStableID component and derive buildIndex * 1e6 + intraSceneID.
+- WorldSync: a key that appears with value 0 is a scene initialising defaults; never sent (it reset teammates' altars).
+- Host rules (HostSettings): serialized flag from the host on join and on change. Own-money mode filters ItemDelta for
+  MONEY/SUPPLIES/WELL_SUPPLIES/FLASK item types and credits coins only to the picker.
+- Enemy toughness: ModifyDefensePower does nothing for direct ReceiveDamage calls; damage is divided in our Creature
+  damage hook instead (with fractional carry); forwarded/death hits bypass it.
+- Regroup: players announce scene + PlayerCharacterSpawn.portalIDToSpawnAt on arrival; "go to" warps to that portal and
+  teleports next to them only after the load finished (the active scene name flips early; teleporting mid-load made the
+  game fall back to the old area).
+- Shared camera: CameraController Update/FixedUpdate are both hooked; the game doesn't rewrite orthographicSize every
+  time, so our zoom is undone (only if unchanged) before each update.
+- Steam presence: steam_api64 is loaded from Tunic_Data/Plugins where Mono's DllImport can't find it: GetModuleHandle +
+  GetProcAddress. UnityWebRequest's DownloadHandlerBuffer is stripped from the build: update check uses HttpWebRequest.
+- The manual's map pages have a YouAreHereMapper but the game never draws the marker in normal play: no map markers.

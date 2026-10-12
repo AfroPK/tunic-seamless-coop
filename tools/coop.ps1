@@ -33,7 +33,9 @@ function Send-Cmd([ValidateSet('A','B','C')]$Pc, [string]$Line) {
         Add-Content -Path (Join-Path $Script:Dirs[$Pc] 'cmd.txt') -Value $full
     } else {
         # NB cmd.exe: in `if ... mkdir X & echo` the `& echo` belongs to the if-body, so keep them separate.
-        Invoke-B "(echo $full)>>`"$($Script:Dirs[$Pc])\cmd.txt`"" | Out-Null
+        # cmd.exe metacharacters (| & < > ^ and parentheses inside the echo group) must be ^-escaped.
+        $esc = $full -replace '([\^|&<>()])', '^$1'
+        Invoke-B "(echo $esc)>>`"$($Script:Dirs[$Pc])\cmd.txt`"" | Out-Null
     }
     $seq
 }
@@ -148,6 +150,16 @@ function Reset-Session([double[]]$At = $null) {
     Update-Game A; Update-Game B
     Do-Cmd A 'continue 60' 70; Do-Cmd B 'continue 60' 70
     Do-Cmd A 'waitplayer 60' 70; Do-Cmd B 'waitplayer 60' 70
+    # Tests start in the Overworld. A save that last autosaved in a boss arena loads there: warp back first
+    # (to the starting-island teleporter pad), or "beach" coordinates would be void in that area.
+    foreach ($p in 'A', 'B') {
+        if ((Get-State $p).scene -ne 'Overworld Redux') {
+            Do-Cmd $p 'warp Overworld Redux|Transit_teleporter_starting island' 60
+            Do-Cmd $p 'waitplayer 40' 45
+        }
+    }
+    # Default host rules on both (rule tests change them, and config persists between runs).
+    foreach ($p in 'A', 'B') { foreach ($r in 'revive on', 'reviveSeconds 3', 'reviveHealth 50', 'bleedOut 0', 'enemyHealth 0', 'share on') { Do-Cmd $p "rule $r" 5 | Out-Null } }
     Do-Cmd A 'host' 10; Do-Cmd B 'join' 10
     Do-Cmd B 'waitplayers 2 20' 30; Do-Cmd A 'waitplayers 2 20' 30
     if ($At) {
@@ -166,3 +178,25 @@ function Deploy([ValidateSet('A','B','C','both','all')]$Pc = 'both') {
         "$t deployed $h"
     }
 }
+
+# Compile the mod; throws (stopping the pipeline) on errors.
+function Build {
+    $out = dotnet build (Join-Path (Split-Path $PSScriptRoot -Parent) 'src\TunicCoop') -c Release -nologo -v q 2>&1
+    $err = @($out | Select-String ' error ')
+    if ($LASTEXITCODE -ne 0 -or $err.Count) { $err | Select-Object -First 10 | ForEach-Object { $_.Line }; throw 'build failed' }
+    'build ok'
+}
+
+# Copy TUNIC's SAVES folder (both PCs) to tools/savebackups/<pc>/<timestamp> before tests touch the saves.
+function Backup-Saves {
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $root = Join-Path $PSScriptRoot 'savebackups'
+    $src = "$env:USERPROFILE\AppData\LocalLow\Andrew Shouldice\Secret Legend\SAVES"
+    $dst = Join-Path $root "A\$stamp"; New-Item -ItemType Directory -Force $dst | Out-Null
+    Copy-Item "$src\*" $dst -Force
+    "A: $(@(Get-ChildItem $dst).Count) files -> $dst"
+    $zip = "tunic_saves_$stamp.zip"
+    Invoke-B "tar -a -c -f `"%TEMP%\$zip`" -C `"%USERPROFILE%\AppData\LocalLow\Andrew Shouldice\Secret Legend\SAVES`" ." | Out-Null
+    $dstB = Join-Path $root 'B'; New-Item -ItemType Directory -Force $dstB | Out-Null
+    scp -q @Script:Ssh "$($Script:Remote):AppData/Local/Temp/$zip" (Join-Path $dstB $zip)
+    "B: $(if (Test-Path (Join-Path $dstB $zip)) { 'saved' } else { 'FAILED' }) -> $dstB\$zip"}

@@ -140,3 +140,27 @@ hung process the sandbox couldn't kill).
 - Bosses/cutscenes under per-monster ownership; Steam lobbies/P2P (Steamworks.NET ships in the game).
 - Why the tether-wand windup tentacles are invisible on the real fox (renderer flags, forceRenderingOff,
   bones, bounds, animator state, property blocks and materials were all identical).
+
+## Bosses, ambushes and the rest (0.2.0)
+
+- **Warp anywhere for tests:** `Cheats.CheatWarpToPortal(scene, fullId)` (static) arrives at a portal whose
+  `ScenePortal.FullID` is `<destinationScene>_<id>`. `DepartToScene` from an unrelated area has no arrival portal and
+  drops the fox into the void. List FullIDs by warping with an empty id and reading `ScenePortal`s before the fall.
+- **Bosses are plain `Monster`s** (Spidertank, Librarian, ScavengerBoss, Knightbot, Foxgod...). The Guard Captain is a
+  50 hp Skuladin, found through `BossAnnounceOnAggro.monster`. Don't hand a boss to another player once engaged:
+  its phase state only lives in the owner's game. Defeat flags (`SV_Fortress Arena_Spidertank Is Dead`, `Librarian
+  Dead Forever`, `SV_ScavengerBossesDead`, `SV_Archipelagos Redux TUNIC Knight is Dead`) are ordinary SaveFile ints:
+  world sync carries them; tests reset them with SetInt 0 so the boss is back.
+- **Mirrored bosses replay their attacks**, and their explosions damage themselves on the mirror machine. Forward
+  mirror damage only right after a local attack/item input, or the owner takes it twice.
+- **Runtime spawns** (boss adds, `Clone`s) have no RuntimeStableID: name them on the spawning machine, pair by
+  name + distance elsewhere, instantiate from a same-named monster/prefab if missing.
+- **Pre-placed sleepers** (Cathedral wave altars, ambushes) wake in one game only. An inactive object never ran
+  Awake: `Monster.runtimeStableID` is null; read the component and derive `buildIndex * 1e6 + intraSceneID`.
+- **Defaults are not progress:** a scene writing new SaveFile keys = 0 on load must not be synced (it reset a
+  teammate's altars).
+- `Creature.ModifyDefensePower` doesn't affect direct `IDamageable_ReceiveDamage`; scale damage in your own hook.
+- Unity's `DownloadHandlerBuffer` is stripped from the build (UnityWebRequest.Get throws "Method not found"); Mono's
+  HttpWebRequest with TLS 1.2 works. `steam_api64.dll` lives in `Tunic_Data/Plugins/x86_64`, where Mono's DllImport
+  can't find it: GetModuleHandle + GetProcAddress on the already-loaded module.
+- The manual's map pages have a `YouAreHereMapper`, but the game doesn't draw the marker in normal play.

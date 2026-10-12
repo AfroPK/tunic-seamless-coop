@@ -79,7 +79,13 @@ namespace TunicCoop
                 if (SaveFile.intStore != null)
                     foreach (var kv in SaveFile.intStore)
                         if (!_ints.TryGetValue(kv.Key, out var old) || old != kv.Value)
-                        { _ints[kv.Key] = kv.Value; if (send) Changed(net, FlagKind.Int, kv.Key, kv.Value.ToString(CultureInfo.InvariantCulture)); }
+                        {
+                            bool fresh = !_ints.ContainsKey(kv.Key);
+                            _ints[kv.Key] = kv.Value;
+                            // A key that just appeared with 0 is a scene initialising its defaults, not progress;
+                            // sending it would reset a teammate who already has that thing done.
+                            if (send && !(fresh && kv.Value == 0)) Changed(net, FlagKind.Int, kv.Key, kv.Value.ToString(CultureInfo.InvariantCulture));
+                        }
                 if (SaveFile.floatStore != null)
                     foreach (var kv in SaveFile.floatStore)
                         if (!_floats.TryGetValue(kv.Key, out var old) || old != kv.Value)
@@ -99,7 +105,7 @@ namespace TunicCoop
                         if (_items.ContainsKey(name) && old == q) continue;
                         bool known = _items.ContainsKey(name);
                         _items[name] = q;
-                        if (send && known)
+                        if (send && known && !HostSettings.IsPersonal(it))
                         {
                             Plugin.L.LogInfo($"[inv] {name} {old} -> {q}");
                             net.SendFlag(FlagKind.ItemDelta, name, (q - old).ToString(CultureInfo.InvariantCulture));
@@ -153,14 +159,15 @@ namespace TunicCoop
         /// <summary>Local credit decided by CoinSync (each machine credits itself); not sent as a delta.</summary>
         public static void Credit(string item, int value)
         {
-            try { ApplyItem(FlagKind.ItemDelta, item, value.ToString(CultureInfo.InvariantCulture)); }
+            try { ApplyItem(FlagKind.ItemDelta, item, value.ToString(CultureInfo.InvariantCulture), true); }
             catch (Exception e) { Plugin.L.LogWarning($"[inv] credit {item} failed: {e.Message}"); }
         }
 
-        static void ApplyItem(FlagKind kind, string name, string value)
+        static void ApplyItem(FlagKind kind, string name, string value, bool local = false)
         {
             var it = Inventory.GetItemByName(name);
             if (it == null) { Plugin.L.LogWarning($"[inv] unknown item '{name}'"); return; }
+            if (!local && HostSettings.IsPersonal(it)) return;   // own money/consumables mode: nobody else touches these
             int n = int.Parse(value, CultureInfo.InvariantCulture);
             int before = it.Quantity;
             int after = kind == FlagKind.ItemDelta ? Math.Max(0, before + n) : Math.Max(0, n);

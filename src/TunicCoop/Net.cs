@@ -22,7 +22,7 @@ namespace TunicCoop
         Monsters = 10,  // *     owner's enemy stream (unreliable, chunked)        // *     id, full, visibility entries (reliable ordered, fragmentable)
     }
 
-    public enum FlagKind : byte { Int = 0, Float = 1, String = 2, ItemDelta = 3, ItemSet = 4, Smash = 5, CoinSpawn = 6, CoinMove = 7, CoinGone = 8, CoinClaim = 9, CoinTaken = 10, ChestOpen = 11, MonsterHit = 12, MonsterDead = 13, MonsterOwner = 14, PlayerDown = 15, PlayerUp = 16, Revive = 17 }
+    public enum FlagKind : byte { Int = 0, Float = 1, String = 2, ItemDelta = 3, ItemSet = 4, Smash = 5, CoinSpawn = 6, CoinMove = 7, CoinGone = 8, CoinClaim = 9, CoinTaken = 10, ChestOpen = 11, MonsterHit = 12, MonsterDead = 13, MonsterOwner = 14, PlayerDown = 15, PlayerUp = 16, Revive = 17, MonsterSpawn = 18, Settings = 19, Ping = 20, Chat = 21, Arrived = 22 }
 
     /// <summary>
     /// LiteNetLib session. Star topology: the host (player 0) relays every client message to the others.
@@ -79,25 +79,67 @@ namespace TunicCoop
             l.PeerConnectedEvent += peer => Plugin.L.LogInfo($"[net] peer {peer} connected, waiting for Hello");
             l.PeerDisconnectedEvent += (peer, info) => HostDropPeer(peer, info.Reason.ToString());
             l.NetworkReceiveEvent += HostReceive;
-            _mgr = new NetManager(l) { AutoRecycle = true, UpdateTime = 15, DisconnectTimeout = 10000 };
+            _mgr = new NetManager(l) { AutoRecycle = true, UpdateTime = 15, DisconnectTimeout = 10000, NatPunchEnabled = true };
+            _mgr.NatPunchModule.Init(new EventBasedNatPunchListener());   // the relay introduces joiners; nothing to do here
             if (!_mgr.Start(IPAddress.Any, IPAddress.IPv6Any, port))
                 throw new Exception($"Could not bind UDP port {port}");
             Plugin.L.LogInfo($"[net] hosting on UDP {port}, max {_max} players");
         }
 
-        public void Join(string address, int port, string password, string name)
+        // ---------------- NAT punch-through via an optional relay (Network.Introducer) ----------------
+
+        public static IPEndPoint Introducer()
+        {
+            string s = Plugin.Introducer.Value?.Trim();
+            if (string.IsNullOrEmpty(s)) return null;
+            try
+            {
+                int port = 27016; string host = s;
+                int colon = s.LastIndexOf(':');
+                if (colon > 0 && int.TryParse(s.Substring(colon + 1), out var p)) { host = s.Substring(0, colon); port = p; }
+                var ip = IPAddress.TryParse(host, out var a) ? a : Array.Find(Dns.GetHostAddresses(host), x => x.AddressFamily == AddressFamily.InterNetwork);
+                return ip != null ? new IPEndPoint(ip, port) : null;
+            }
+            catch { return null; }
+        }
+
+        float _nextRegister;
+        public string RegisteredCode { get; private set; }
+
+        /// <summary>Host: keep our join code registered with the relay so joiners behind other NATs can find us.</summary>
+        public void TickHostRegistration(string code)
+        {
+            if (!IsHost || _mgr == null || string.IsNullOrEmpty(code) || UnityEngine.Time.unscaledTime < _nextRegister) return;
+            _nextRegister = UnityEngine.Time.unscaledTime + 5f;
+            var ep = Introducer(); if (ep == null) return;
+            _mgr.NatPunchModule.SendNatIntroduceRequest(ep, "host:" + code);
+            if (RegisteredCode != code) { RegisteredCode = code; Plugin.L.LogInfo("[net] join code registered with the relay"); }
+        }
+
+        NetPeer _direct;            // the plain connection attempt (may fail when NATs are in the way)
+        float _punchUntil;          // a relay punch-through is still possible until then
+        string _punchCode, _password;
+
+        public void Join(string address, int port, string password, string name, string code = null)
         {
             Stop("restart");
             IsHost = false; LocalId = 255; Players.Clear(); Meta.Clear(); LastAddress = address; LastPort = port;
+            _password = password;
             var l = new EventBasedNetListener();
             l.PeerConnectedEvent += peer =>
             {
+                if (_server != null && _server != peer && _server.ConnectionState == ConnectionState.Connected) { peer.Disconnect(); return; }   // the other route won
+                _server = peer;
+                _punchUntil = 0;
                 _w.Reset(); _w.Put((byte)Msg.Hello); _w.Put(name);
                 _w.Put(Plugin.Version); _w.Put(GameInfo.Version); _w.Put(GameInfo.Store);
                 peer.Send(_w, DeliveryMethod.ReliableOrdered);
             };
             l.PeerDisconnectedEvent += (peer, info) =>
             {
+                // A failed route while another may still work (direct vs relay punch-through): not a disconnect yet.
+                if (peer != _server && _server != null) return;
+                if (LocalId == 255 && UnityEngine.Time.unscaledTime < _punchUntil) { Plugin.L.LogInfo("[net] direct route failed; waiting for the relay"); _server = null; return; }
                 string extra = info.AdditionalData != null && info.AdditionalData.AvailableBytes > 0 ? info.AdditionalData.GetString() : null;
                 string why = Explain(info.Reason, extra, address, port);
                 Plugin.L.LogWarning($"[net] disconnected from host ({why})");
@@ -108,10 +150,25 @@ namespace TunicCoop
                 _stopAfterPoll = true;   // can't Stop() the manager from inside its own event
             };
             l.NetworkReceiveEvent += ClientReceive;
-            _mgr = new NetManager(l) { AutoRecycle = true, UpdateTime = 15, DisconnectTimeout = 10000 };
+            _mgr = new NetManager(l) { AutoRecycle = true, UpdateTime = 15, DisconnectTimeout = 10000, NatPunchEnabled = true };
+            var punch = new EventBasedNatPunchListener();
+            punch.NatIntroductionSuccess += (target, type, token) =>
+            {
+                if (_server != null && _server.ConnectionState == ConnectionState.Connected) return;
+                Plugin.L.LogInfo($"[net] relay introduced us to the host ({type}); connecting through the NAT");
+                _server = _mgr.Connect(target, Key(_password));
+            };
+            _mgr.NatPunchModule.Init(punch);
             _mgr.Start();
-            _server = _mgr.Connect(address, port, Key(password));
+            _server = _direct = _mgr.Connect(address, port, Key(password));
             Plugin.L.LogInfo($"[net] connecting to {address}:{port}");
+            var relay = Introducer();
+            if (relay != null && !string.IsNullOrEmpty(code))
+            {
+                _punchCode = code; _punchUntil = UnityEngine.Time.unscaledTime + 15f;
+                _mgr.NatPunchModule.SendNatIntroduceRequest(relay, "join:" + code);
+                Plugin.L.LogInfo("[net] also asking the relay for a punch-through");
+            }
         }
 
         public void Stop(string why)
@@ -126,10 +183,29 @@ namespace TunicCoop
             Plugin.L.LogInfo($"[net] stopped ({why})");
         }
 
+        /// <summary>Test hook: vanish like a crashed game (no goodbye packet), so the host only notices by timeout
+        /// or when we reconnect.</summary>
+        public void SimulateCrash()
+        {
+            if (_mgr == null) return;
+            _mgr.Stop(false);
+            _mgr = null; _server = null;
+            Players.Clear();
+            Plugin.L.LogInfo("[net] simulated crash (no disconnect sent)");
+        }
+
         bool _stopAfterPoll;
         public void Poll()
         {
             _mgr?.PollEvents();
+            _mgr?.NatPunchModule.PollEvents();
+            // Relay punch-through timed out without any route working: now it's a real failure.
+            if (_mgr != null && !IsHost && LocalId == 255 && _punchUntil > 0 && UnityEngine.Time.unscaledTime > _punchUntil && (_server == null || _server.ConnectionState != ConnectionState.Connected))
+            {
+                _punchUntil = 0;
+                OnDisconnected?.Invoke($"Couldn't reach {GameInfo.Show(LastAddress + ":" + LastPort)}, directly or through the relay.");
+                _stopAfterPoll = true;
+            }
             if (_stopAfterPoll) { _stopAfterPoll = false; Stop("disconnected"); }   // HUD shows Offline, F8/menu can retry
         }
 
@@ -180,6 +256,16 @@ namespace TunicCoop
                     {
                         peer.Disconnect(Encode($"Mod version mismatch: host has {Plugin.Version}, you have {modVer}. Everyone needs the same version."));
                         return;
+                    }
+                    // Rejoin after a crash: their old connection may not have timed out yet. Same address + same
+                    // name = the same player coming back; drop the stale one so they get their seat back now.
+                    foreach (var kv in new List<KeyValuePair<byte, NetPeer>>(_playerToPeer))
+                    {
+                        if (kv.Value == peer || !Players.TryGetValue(kv.Key, out var oldName) || oldName != name) continue;
+                        if (!kv.Value.Address.Equals(peer.Address)) continue;
+                        Plugin.L.LogInfo($"[net] '{name}' reconnected; dropping their stale connection (player {kv.Key})");
+                        HostDropPeer(kv.Value, "reconnected");
+                        kv.Value.Disconnect();
                     }
                     byte id = 0;
                     for (byte i = 1; i < Plugin.HardPlayerCap; i++) if (!Players.ContainsKey(i)) { id = i; break; }

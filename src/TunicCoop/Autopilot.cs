@@ -344,6 +344,19 @@ namespace TunicCoop
                     result = Snap(Path.Combine(Dir, "shots", name + ".png"));
                     return true;
                 }
+                case "rec":     // rec <seconds> <fps> <name> : frames for a showcase clip (shots/<name>_0000.png ...)
+                {
+                    float secs = Fl(c, 0, 6f), fps = Fl(c, 1, 10f);
+                    string name = c.Args.Length > 2 ? c.Args[2] : "rec";
+                    int frame = c.Data is int f0 ? f0 : 0;
+                    if (t >= frame / fps)
+                    {
+                        Snap(Path.Combine(Dir, "shots", $"{name}_{frame:D4}.png"));
+                        c.Data = frame + 1;
+                    }
+                    if (t > secs) { result = $"ok | {frame} frames"; return true; }
+                    return false;
+                }
                 case "monsters": Diagnostics.DumpMonsters(scene); return true;
                 case "spawncoins": // spawncoins <value> [dist] : drop coins ahead of the player via the game's CoinSpawner
                 {
@@ -401,7 +414,7 @@ namespace TunicCoop
                         var sp = obj.TryCast<ScenePortal>();
                         if (sp == null) continue;
                         var p = sp.transform.position; float d = (p - from).magnitude;
-                        if (d <= Fl(c, 0, 60f)) found.Add((d, $"{F(p.x)}|{F(p.y)}|{F(p.z)}|{sp.destinationSceneName}|{sp.id}"));
+                        if (d <= Fl(c, 0, 60f)) found.Add((d, $"{F(p.x)}|{F(p.y)}|{F(p.z)}|{sp.destinationSceneName}|{sp.id}|{sp.FullID}"));
                     }
                     found.Sort((x, y) => x.d.CompareTo(y.d));
                     var parts = new List<string>(); foreach (var f in found) parts.Add(f.s);
@@ -420,6 +433,153 @@ namespace TunicCoop
                     if (scene == spec[0] && pc != null && SceneLoader.sceneNameToLoad == spec[0]) { result = "ok | " + scene; return true; }
                     if (t > 40f) { result = "fail | still in " + scene; return true; }
                     return false;
+                }
+                case "warp":    // warp <Scene Name>|<portal FullID> : TUNIC's dev warp — arrive AT a given portal of any scene
+                {
+                    var spec = string.Join(" ", c.Args).Split('|');
+                    if (c.Data == null)
+                    {
+                        Cheats.CheatWarpToPortal(spec[0], spec.Length > 1 ? spec[1] : "");
+                        c.Data = true;
+                    }
+                    if (scene == spec[0] && pc != null && SceneLoader.sceneNameToLoad == spec[0] && t > 1f) { result = "ok | " + scene + " @ " + PlayerCharacterSpawn.portalIDToSpawnAt; return true; }
+                    if (t > 40f) { result = "fail | still in " + scene; return true; }
+                    return false;
+                }
+                case "boss":    // boss : what the boss health bar shows on this machine
+                {
+                    var ba = BossAnnouncer.instance;
+                    string cur = "none";
+                    try { if (ba != null && ba.currentMonster != null) cur = $"{ba.currentMonster.GetIl2CppType().Name} hp={ba.currentMonster.hp}/{ba.currentMonster.maxhp}"; } catch { }
+                    result = $"ok | bar={(ba != null && ba.barVisible)} monster={cur}";
+                    return true;
+                }
+                case "setint":  // setint <value> <key with spaces> : write a SaveFile int (test setup)
+                {
+                    int v = (int)Fl(c, 0, 0);
+                    string key = string.Join(" ", c.Args, 1, c.Args.Length - 1);
+                    SaveFile.SetInt(key, v);
+                    result = $"ok | {key} = {SaveFile.GetInt(key)}";
+                    return true;
+                }
+                case "ping": Signals.PingHere(net); result = "ok | " + Signals.Describe(); return true;
+                case "chat":    // chat <1-6> : quick chat phrase
+                    Signals.Say(net, (int)Fl(c, 0, 1) - 1); result = "ok | " + Signals.Describe(); return true;
+                case "signals": result = "ok | " + Signals.Describe(); return true;
+                case "gotoplayer": // gotoplayer <id> : the F5 / menu "Go to" travel
+                {
+                    Regroup.GoTo(net, (byte)Fl(c, 0, 0));
+                    result = "ok | " + Regroup.Describe(); return true;
+                }
+                case "regroup": result = "ok | " + Regroup.Describe(); return true;
+                case "cam":     // cam [shared on|off] : shared camera state
+                {
+                    if (c.Args.Length > 1 && c.Args[0] == "shared") Plugin.SharedCamera.Value = c.Args[1] == "on";
+                    result = "ok | " + SharedCam.Describe(); return true;
+                }
+                case "rule":    // rule <revive|reviveSeconds|reviveHealth|bleedOut|enemyHealth|share> <value> : host rules (as the Rules tab)
+                {
+                    if (c.Args.Length >= 2)
+                    {
+                        string v = c.Args[1];
+                        switch (c.Args[0])
+                        {
+                            case "revive": Plugin.Revive.Value = v == "on" || v == "1"; break;
+                            case "reviveSeconds": Plugin.ReviveSeconds.Value = Fl(c, 1, 3); break;
+                            case "reviveHealth": Plugin.ReviveHealthPercent.Value = (int)Fl(c, 1, 50); break;
+                            case "bleedOut": Plugin.BleedOutSeconds.Value = (int)Fl(c, 1, 0); break;
+                            case "enemyHealth": Plugin.EnemyHealthPerExtraPlayer.Value = (int)Fl(c, 1, 0); break;
+                            case "share": Plugin.ShareMoneyAndConsumables.Value = v == "on" || v == "1"; break;
+                        }
+                        if (net != null && net.Active && net.IsHost) mgr.SendSettings(); else HostSettings.LoadLocal();
+                    }
+                    result = "ok | " + HostSettings.Serialize() + " fromHost=" + HostSettings.FromHost; return true;
+                }
+                case "connect": // connect : join codes / port forwarding / public address / update state
+                {
+                    var codes = CoopUI.HostCodes(net);
+                    result = $"ok | upnp={PortMapper.Status} ext={(PortMapper.ExternalIp != null ? "yes" : "no")} stun={(PublicAddress.Ip != null ? "yes" : "no")} internetCode={codes.internet ?? "-"} lanCode={codes.lan ?? "-"} update={UpdateCheck.Latest ?? "none"}";
+                    return true;
+                }
+                case "decode":  // decode <code> : what address a join code points to
+                {
+                    result = JoinCode.TryDecode(c.Args[0], out var a, out var p) ? $"ok | {a}:{p}" : "fail | not a code"; return true;
+                }
+                case "sfx": result = $"ok | revive sounds played={Sfx.Played}"; return true;
+                case "mappage": // mappage open|close|state : the manual's map page for this area
+                {
+                    string sub = c.Args.Length > 0 ? c.Args[0] : "state";
+                    var pd = PageDisplay.instance;
+                    if (sub == "open")
+                    {
+                        var yahm = Object.FindObjectOfType<YouAreHereMapper>();
+                        if (yahm == null || pd == null) { result = "fail | no map for this area"; return true; }
+                        if (!Profile.IsPageUnlocked(yahm.leafNumber)) Profile.UnlockPage(yahm.leafNumber);   // test save: make sure the map page is in the book
+                        PageDisplay.showSpecificPageOnOpen = true; PageDisplay.specificLeafToShowOnOpen = yahm.leafNumber;
+                        PageDisplay.ShowPage(yahm.leafNumber);
+                        result = $"ok | opened leaf {yahm.leafNumber}"; return true;
+                    }
+                    if (sub == "close" && pd != null) { pd.close(); }
+                    if (sub == "show" && pd != null) { var y2 = Object.FindObjectOfType<YouAreHereMapper>(); if (y2 != null) PageDisplay.ShowPage(y2.leafNumber); }
+                    result = $"ok | open={PageDisplay.Open}"; return true;
+                }
+                case "crash": net.SimulateCrash(); result = "ok | network vanished"; return true;
+                case "relay":   // relay <host:port | off> : the NAT punch-through relay (Network.Introducer)
+                    if (c.Args.Length > 0) Plugin.Introducer.Value = c.Args[0] == "off" ? "" : c.Args[0];
+                    result = $"ok | introducer='{Plugin.Introducer.Value}' registered={(net.RegisteredCode != null)}"; return true;
+                case "keys":    // keys <substring> : SaveFile int/string keys containing it, with values
+                {
+                    string sub = string.Join(" ", c.Args);
+                    var parts = new List<string>();
+                    if (SaveFile.intStore != null) foreach (var kv in SaveFile.intStore) if (kv.Key.Contains(sub)) parts.Add($"{kv.Key}={kv.Value}");
+                    if (SaveFile.stringStore != null) foreach (var kv in SaveFile.stringStore) if (kv.Key.Contains(sub)) parts.Add($"{kv.Key}='{(kv.Value?.Length > 40 ? kv.Value.Substring(0, 40) + "…" : kv.Value)}'");
+                    result = "ok | " + string.Join("; ", parts); return true;
+                }
+                case "freeze":  // freeze <monsterId> on|off : pause a monster's AI on its owner (test setups)
+                {
+                    var fm = MonsterSync.Find(int.Parse(c.Args[0], CultureInfo.InvariantCulture));
+                    if (fm == null) { result = "fail | no monster"; return true; }
+                    bool on = c.Args.Length < 2 || c.Args[1] == "on";
+                    fm.enabled = !on;
+                    try { if (fm.nma != null && fm.nma.isOnNavMesh) fm.nma.isStopped = on; } catch { }
+                    try { var an = fm.cachedAnimator; if (an != null) an.speed = on ? 0f : 1f; } catch { }
+                    result = $"ok | frozen={on}"; return true;
+                }
+                case "getstr":  // getstr <key with spaces> : read a SaveFile string
+                {
+                    string key = string.Join(" ", c.Args);
+                    result = $"ok | '{key}'='{SaveFile.GetString(key)}'"; return true;
+                }
+                case "setstr":  // setstr <key with spaces>|<value> : write a SaveFile string (test setup)
+                {
+                    var kv = string.Join(" ", c.Args).Split('|');
+                    SaveFile.SetString(kv[0], kv.Length > 1 ? kv[1] : "");
+                    result = $"ok | {kv[0]} = '{SaveFile.GetString(kv[0])}'";
+                    return true;
+                }
+                case "hurt":    // hurt <monsterId> <dmg> : damage a monster exactly like a local hit would (boss tests)
+                {
+                    int id = int.Parse(c.Args[0], CultureInfo.InvariantCulture); int dmg = (int)Fl(c, 1, 10);
+                    MonsterSync.LastLocalAttack = Time.unscaledTime;   // counts as our hit
+                    var synced = MonsterSync.Find(id);
+                    if (synced != null)
+                    {
+                        int b0 = synced.hp;
+                        synced.IDamageable_ReceiveDamage(dmg, 0, Vector3.zero, 0f, 0);
+                        result = $"ok | {id} {synced.GetIl2CppType().Name} hp {b0} -> {synced.hp}";
+                        return true;
+                    }
+                    var mm = MonsterManager.instance;
+                    if (mm != null && mm.monsters != null)
+                        foreach (var m in mm.monsters)
+                        {
+                            if (m == null || m.runtimeStableID == null || !m.runtimeStableID.HasValidID || m.runtimeStableID.ID != id) continue;
+                            int before = m.hp;
+                            m.IDamageable_ReceiveDamage(dmg, 0, Vector3.zero, 0f, 0);
+                            result = $"ok | {id} {m.GetIl2CppType().Name} hp {before} -> {m.hp}";
+                            return true;
+                        }
+                    result = "fail | no monster " + id; return true;
                 }
                 case "foxnodes": // foxnodes local|puppet : visible renderers / emitting particles by path (diagnostics)
                 {
@@ -480,6 +640,34 @@ namespace TunicCoop
                     result = $"ok | {parts.Count}: " + string.Join("; ", parts);
                     return true;
                 }
+                case "gauntlet": // gauntlet start : what stepping into the Cathedral arena does on THIS machine only
+                {
+                    var gm = Object.FindObjectOfType<CathedralGauntletManager>();
+                    if (gm == null) { result = "fail | no gauntlet here"; return true; }
+                    if (c.Args.Length > 1 && c.Args[0] == "light")
+                    {
+                        // gauntlet light <altar substring> : what lighting that altar's candle does (interaction)
+                        foreach (var o in Object.FindObjectsOfType<CathedralGauntletSummoner>())
+                            if (o.gameObject.name.Contains(c.Args[1])) { o.playerLightCandle(); result = "ok | lit " + o.gameObject.name; return true; }
+                        result = "fail | no altar " + c.Args[1]; return true;
+                    }
+                    gm.FightStart();
+                    result = "ok | fight started"; return true;
+                }
+                case "findtype": // findtype <ComponentTypeName> : scene objects carrying that component (+ position)
+                {
+                    var parts = new List<string>();
+                    var ty = typeof(PlayerCharacter).Assembly.GetType(c.Args[0]);
+                    if (ty == null) { result = "fail | no type " + c.Args[0]; return true; }
+                    foreach (var obj in Object.FindObjectsOfType(Il2CppType.From(ty)))
+                    {
+                        var comp = obj.TryCast<Component>(); if (comp == null) continue;
+                        var p = comp.transform.position;
+                        parts.Add($"{comp.gameObject.name}@{F(p.x)},{F(p.y)},{F(p.z)} active={comp.gameObject.activeInHierarchy}");
+                    }
+                    result = $"ok | {parts.Count}: " + string.Join("; ", parts);
+                    return true;
+                }
                 case "revive":  // revive state | next | prev | giveup | force
                 {
                     string sub = c.Args.Length > 0 ? c.Args[0] : "state";
@@ -487,6 +675,7 @@ namespace TunicCoop
                     else if (sub == "prev") ReviveSystem.Cycle(-1);
                     else if (sub == "giveup") ReviveSystem.ReallyDie();
                     else if (sub == "force") ReviveSystem.ForceReviveLocal();
+                    else if (sub == "down") ReviveSystem.ForceDownLocal();
                     result = "ok | " + ReviveSystem.Describe();
                     return true;
                 }
@@ -655,14 +844,14 @@ namespace TunicCoop
         }
 
         /// <summary>Snap a requested point to walkable floor (teleporting to a raw height put foxes inside walls).</summary>
-        static Vector3 Ground(Vector3 want)
+        internal static Vector3 Ground(Vector3 want)
         {
             if (UnityEngine.AI.NavMesh.SamplePosition(want, out var hit, 4f, -1 /* NavMesh.AllAreas, missing from interop */)) return hit.position;
             if (Physics.Raycast(want + Vector3.up * 8f, Vector3.down, out var rh, 30f)) return rh.point;
             return want;
         }
 
-        static void Teleport(PlayerCharacter pc, Vector3 pos)
+        internal static void Teleport(PlayerCharacter pc, Vector3 pos)
         {
             pos = Ground(pos);
             var cc = pc.GetComponent<CharacterController>();
@@ -730,6 +919,7 @@ namespace TunicCoop
                 {
                     sb.Append($"\"player\":{{\"pos\":[{F(pc.transform.position.x)},{F(pc.transform.position.y)},{F(pc.transform.position.z)}],");
                     try { sb.Append($"\"hp\":{pc.hp},\"maxhp\":{pc.maxhp}"); } catch { sb.Append("\"hp\":null"); }
+                    try { sb.Append($",\"cutscene\":{B(PlayerCharacter.CutsceneLocked)},\"hidden\":{B(PlayerCharacter.CutsceneHidden)}"); } catch { }
                     sb.Append("},");
                 }
                 else sb.Append("\"player\":null,");

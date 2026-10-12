@@ -35,13 +35,14 @@ namespace TunicCoop
             Instance = this;
             _net = new Net();
             _net.WriteFlagDump = WorldSync.WriteDump;
-            _net.OnPlayerJoined += (id, name) => { _pendingSpawn[id] = name; Visibility.ForceFull = true; Toast($"{name} joined the session", CoopUI.Kind.Good); };
+            _net.OnPlayerJoined += (id, name) => { if (_net.IsHost) SendSettings(); ReannounceSoon(); _pendingSpawn[id] = name; Visibility.ForceFull = true; Toast($"{name} joined the session", CoopUI.Kind.Good); };
             _net.OnMonsters += (id, r) => MonsterSync.OnStream(id, r);
             _net.OnVis += (id, r) => { bool full = r.GetBool(); ApplyVis(id, Visibility.ReadEntries(r), full); ApplyAnims(id, Visibility.ReadAnims(r)); };
             _net.OnPlayerLeft += id => { if (_puppets.ContainsKey(id) && _puppets[id] != null) Toast($"{_puppets[id].PlayerName} left the session", CoopUI.Kind.Warn); RemovePuppet(id); };
             _net.OnState += (id, r) => ApplyState(id, Snapshot.Read(r));
             _net.OnFlag += (from, kind, key, val) =>
             {
+                if (kind == FlagKind.MonsterOwner || kind == FlagKind.MonsterSpawn) Plugin.L.LogInfo($"[flag] {kind} {key}={val} from {from}");
                 switch (kind)
                 {
                     case FlagKind.Smash: SmashSync.Apply(key, _scene); break;
@@ -57,6 +58,11 @@ namespace TunicCoop
                     case FlagKind.PlayerDown: ReviveSystem.OnPlayerDown(key); break;
                     case FlagKind.PlayerUp: ReviveSystem.OnPlayerUp(key); break;
                     case FlagKind.Revive: ReviveSystem.OnRevive(key, val); break;
+                    case FlagKind.MonsterSpawn: MonsterSync.ApplySpawn(key, val, from); break;
+                    case FlagKind.Arrived: Regroup.OnArrived(_net, from, val, _scene); break;
+                    case FlagKind.Ping: Signals.OnPing(_net, from, val, _scene); break;
+                    case FlagKind.Chat: Signals.OnChat(_net, from, val); break;
+                    case FlagKind.Settings: if (from == Net.HostId && !_net.IsHost) { HostSettings.Apply(val); Toast("Host rules: " + HostSettings.Describe(), CoopUI.Kind.Info, 7f); } break;
                     default: WorldSync.Apply(kind, key, val); break;
                 }
             };
@@ -74,7 +80,10 @@ namespace TunicCoop
                 if (id != _net.LocalId && !string.IsNullOrEmpty(oldName)) Toast($"{oldName} is now called {newName}");
                 else if (id == _net.LocalId) Toast($"Everyone now sees you as {newName}", CoopUI.Kind.Good);
             };
-            _net.OnDisconnected += why => { WorldSync.Reset(); Toast(why, CoopUI.Kind.Bad); };
+            _net.OnDisconnected += why => { WorldSync.Reset(); HostSettings.LoadLocal(); Regroup.Reset(); Toast(why, CoopUI.Kind.Bad); };
+            _pendingJoinCode = SteamPresence.CodeFromCommandLine();
+            if (_pendingJoinCode != null) Plugin.L.LogInfo("[steam] launched to join a session; joining once the save is loaded");
+            HostSettings.LoadLocal();
         }
 
         void Update()
@@ -91,6 +100,11 @@ namespace TunicCoop
             Guard("Chest sync", () => ChestSync.Tick(_net, _scene));
             Guard("Enemy sync", () => MonsterSync.Tick(_net, _scene));
             Guard("Revive", () => ReviveSystem.Tick(_net, _scene));
+            Guard("Regroup", () => { if (_reannounceAt > 0 && Time.unscaledTime > _reannounceAt && PlayerCharacter.instance != null) { _reannounceAt = 0; Regroup.Announce(_net, _scene); } Regroup.Tick(_net, _scene); });
+            Guard("Signals", () => Signals.Tick(_net));
+            Guard("Updates", UpdateCheck.Tick);
+            Guard("Presence", TickPresence);
+            Guard("Relay", () => { if (_net.IsHost && _net.Active) _net.TickHostRegistration(CoopUI.HostCodes(_net).internet); });
             if (Plugin.EnableAutopilot.Value) Guard("Autopilot", () => Autopilot.Tick(this, _net, _scene));
             Guard("UI", () => CoopUI.Tick(_net, _scene));
 
@@ -207,8 +221,41 @@ namespace TunicCoop
             }
         }
 
+        float _reannounceAt;
+        void ReannounceSoon() { if (_net.Active && _net.LocalId != 255) _reannounceAt = Time.unscaledTime + 1f; }
+
+        string _pendingJoinCode;
+        float _nextPresence;
+
+        /// <summary>Steam "Join Game" presence, and the auto-join when Steam launched us with a join code.</summary>
+        void TickPresence()
+        {
+            if (_pendingJoinCode != null && PlayerCharacter.instance != null && _scene != "TitleScreen" && !_net.Active)
+            {
+                var code = _pendingJoinCode; _pendingJoinCode = null;
+                Toast("Joining your Steam friend's session…", CoopUI.Kind.Info);
+                StartJoin(code);
+            }
+            if (Time.unscaledTime < _nextPresence) return;
+            _nextPresence = Time.unscaledTime + 3f;
+            if (!_net.Active || _net.LocalId == 255) { SteamPresence.Update(null, null, 0); return; }
+            string code2 = null;
+            if (_net.IsHost) { var c = CoopUI.HostCodes(_net); code2 = c.forwarded ? c.internet : null; }
+            else if (System.Net.IPAddress.TryParse(_net.LastAddress, out var ip)) code2 = JoinCode.Encode(ip, _net.LastPort);
+            SteamPresence.Update($"TUNIC co-op  ·  {_net.Players.Count}/{_net.MaxPlayers}", code2, _net.Players.Count);
+        }
+
         void HandleKeys()
         {
+            if (Pressed(KeyCode.F3)) Signals.Key(KeyCode.F3, _net);
+            if (Pressed(KeyCode.F4)) Signals.Key(KeyCode.F4, _net);
+            if (Signals.ChatOpen)
+            {
+                for (var k = KeyCode.Alpha1; k <= KeyCode.Alpha6; k++) if (Pressed(k)) Signals.Key(k, _net);
+                for (var k = KeyCode.Keypad1; k <= KeyCode.Keypad6; k++) if (Pressed(k)) Signals.Key(k, _net);
+                if (Pressed(KeyCode.Escape)) Signals.Key(KeyCode.Escape, _net);
+            }
+            if (Pressed(KeyCode.F5)) Regroup.QuickGo(_net);
             if (Pressed(KeyCode.F7)) StartHost();
             if (Pressed(KeyCode.F8)) StartJoin(null);
             if (Pressed(KeyCode.F9)) Leave();
@@ -233,12 +280,15 @@ namespace TunicCoop
             if (_net.Active && _net.IsHost) { Toast($"Already hosting ({_net.Players.Count}/{Plugin.MaxPlayers.Value}). F9 to stop."); return; }
             try
             {
+                HostSettings.LoadLocal();
                 _net.Host(Plugin.Port.Value, Plugin.MaxPlayers.Value, Plugin.Password.Value, Plugin.PlayerName.Value);
-                WorldSync.Reset();
+                WorldSync.Reset(); Regroup.Reset();
+                PortMapper.Start(Plugin.Port.Value);     // internet friends without router fiddling (UPnP)
+                PublicAddress.Ask();
                 var addrs = GameInfo.LocalAddresses();
                 Toast(Plugin.StreamerMode.Value
-                    ? $"Hosting  ·  up to {Plugin.MaxPlayers.Value} players  ·  address hidden (streamer mode)"
-                    : $"Hosting  ·  friends join {(addrs.Count > 0 ? addrs[0] : "your IP")}:{Plugin.Port.Value}  ·  up to {Plugin.MaxPlayers.Value} players", CoopUI.Kind.Good, 8f);
+                    ? $"Hosting  ·  up to {Plugin.MaxPlayers.Value} players  ·  join code hidden (streamer mode)"
+                    : $"Hosting  ·  friends join with your code (top left) or {(addrs.Count > 0 ? addrs[0] : "your IP")}:{Plugin.Port.Value}  ·  up to {Plugin.MaxPlayers.Value} players", CoopUI.Kind.Good, 8f);
             }
             catch (Exception e) { Toast("Couldn't host: " + e.Message + " (is another program using that port?)", CoopUI.Kind.Bad); }
         }
@@ -248,12 +298,22 @@ namespace TunicCoop
             NameTip();
             if (_net.Active && _net.IsHost) { Toast("You are hosting. Press F9 first to join someone else."); return; }
             address = string.IsNullOrEmpty(address) ? Plugin.JoinAddress.Value : address;
-            WorldSync.Reset();
-            _net.Join(address, Plugin.Port.Value, Plugin.Password.Value, Plugin.PlayerName.Value);
-            Toast($"Connecting to {GameInfo.Show(address + ":" + Plugin.Port.Value)}…");
+            int port = Plugin.Port.Value;
+            string code = null;
+            if (JoinCode.LooksLikeCode(address) && JoinCode.TryDecode(address, out var codeAddr, out var codePort)) { code = address.Trim().ToUpperInvariant(); address = codeAddr; port = codePort; }
+            WorldSync.Reset(); Regroup.Reset();
+            _net.Join(address, port, Plugin.Password.Value, Plugin.PlayerName.Value, code);
+            Toast($"Connecting to {GameInfo.Show(address + ":" + port)}…");
         }
 
-        public void Leave() { _net.Stop("left"); WorldSync.Reset(); Toast("You left the session"); }
+        public void Leave() { bool host = _net.IsHost && _net.Active; _net.Stop("left"); if (host) PortMapper.Stop(); WorldSync.Reset(); HostSettings.LoadLocal(); Regroup.Reset(); Toast("You left the session"); }
+
+        /// <summary>Host: (re)announce the session rules, e.g. after a join or a change in the F1 menu.</summary>
+        public void SendSettings()
+        {
+            HostSettings.LoadLocal();
+            if (_net.Active && _net.IsHost) _net.SendFlag(FlagKind.Settings, "rules", HostSettings.Serialize());
+        }
 
         // Read by PuppetRegistry. NOTE: don't add iterator / Nullable<T> methods to this injected class: BepInEx
         // pre.1's ClassInjector crashed the game natively while registering CoopManager with them.
@@ -291,6 +351,6 @@ namespace TunicCoop
         }
 
         static void Toast(string msg, CoopUI.Kind kind = CoopUI.Kind.Info, float life = 5f) => CoopUI.Toast(msg, kind, life);
-        void OnDestroy() => _net?.Stop("shutdown");
+        void OnDestroy() { _net?.Stop("shutdown"); PortMapper.Stop(); SteamPresence.Update(null, null, 0); }
     }
 }

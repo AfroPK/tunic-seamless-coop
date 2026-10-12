@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net472</TargetFramework>
     <AssemblyName>TunicCoop</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>disable</Nullable>
@@ -46,6 +46,8 @@
     <Reference Include="$(Interop)\UnityEngine.UI.dll" Private="false" />
     <Reference Include="$(Interop)\UnityEngine.UIModule.dll" Private="false" />
     <Reference Include="$(Interop)\UnityEngine.ImageConversionModule.dll" Private="false" />
+    <Reference Include="$(Interop)\UnityEngine.UnityWebRequestModule.dll" Private="false" />
+    <Reference Include="$(Interop)\FMODUnity.dll" Private="false" />
   </ItemGroup>
 
   <!-- Deploy: TunicCoop.dll + LiteNetLib.dll into BepInEx/plugins/TunicCoop -->

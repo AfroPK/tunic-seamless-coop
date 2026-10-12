@@ -69,7 +69,7 @@ namespace TunicCoop
             try
             {
                 var pc = PlayerCharacter.instance;
-                if (!_bypass && pc != null && self == pc.Pointer && Plugin.Revive.Value && _net != null && _net.Connected)
+                if (!_bypass && pc != null && self == pc.Pointer && HostSettings.Revive && _net != null && _net.Connected)
                 {
                     if (Downed) return 0;                                    // no damage while down
                     int hp = pc.hp;
@@ -77,6 +77,19 @@ namespace TunicCoop
                     {
                         byte r = hp > 1 ? _origDamage(self, hp - 1, poise, force, freeze, poison, mi) : (byte)1; // keep the hit reaction
                         GoDown();
+                        return r;
+                    }
+                }
+                else if (pc == null || self != pc.Pointer)
+                {
+                    // Monsters: the host's "enemy toughness" rule divides incoming damage (no-op when off).
+                    dmg = MonsterSync.ScaleDamage(self, dmg);
+                    // Mirrors (monsters another player runs): forward our hit, never die locally.
+                    int local = MonsterSync.MirrorHit(self, dmg, out bool mirror);
+                    if (mirror)
+                    {
+                        byte r = local > 0 ? _origDamage(self, local, poise, force, freeze, poison, mi) : (byte)0;
+                        MonsterSync.AfterMirrorHit(self);
                         return r;
                     }
                 }
@@ -88,12 +101,19 @@ namespace TunicCoop
         static void CamStep(IntPtr self, IntPtr mi, VoidFn orig)
         {
             Transform t = null;
-            try { t = new CameraController(self).transform; if (_camShift != Vector3.zero) t.position -= _camShift; } catch { }
+            try { var cc0 = new CameraController(self); t = cc0.transform; if (_camShift != Vector3.zero) t.position -= _camShift; SharedCam.Undo(cc0); } catch { }
             orig(self, mi);
             try
             {
                 _camShift = Vector3.zero;
-                if (t == null || !Downed || _spectating == 255) return;
+                if (t == null) return;
+                if (!Downed || _spectating == 255)
+                {
+                    // Not spectating: the optional shared camera may frame the whole group instead.
+                    _camShift = SharedCam.Step(new CameraController(self));
+                    if (_camShift != Vector3.zero) t.position += _camShift;
+                    return;
+                }
                 var pc = PlayerCharacter.instance; var target = PuppetPos(_spectating);
                 if (pc == null || target == null) return;
                 _camShift = target.Value - pc.transform.position;
@@ -130,8 +150,16 @@ namespace TunicCoop
             try { left = Input.GetKeyDown(KeyCode.LeftArrow); right = Input.GetKeyDown(KeyCode.RightArrow); give = Input.GetKey(KeyCode.F2); } catch { }
             if (left) Cycle(-1); if (right) Cycle(+1);
             _giveUpHeld = give ? _giveUpHeld + Time.unscaledDeltaTime : 0f;
-            if (_giveUpHeld >= 1.5f) { CoopUI.Toast("Respawning at your campfire"); ReallyDie(); }
+            if (_giveUpHeld >= 1.5f) { CoopUI.Toast("Respawning at your campfire"); ReallyDie(); return; }
+            // host rule: bleed out after a while without help
+            if (HostSettings.BleedOutSeconds > 0 && BleedOutLeft <= 0f) { CoopUI.Toast("You bled out", CoopUI.Kind.Bad); ReallyDie(); }
         }
+
+        /// <summary>Seconds until a downed player bleeds out (only with the host's bleed-out rule).</summary>
+        public static float BleedOutLeft => HostSettings.BleedOutSeconds > 0 ? HostSettings.BleedOutSeconds - (Time.unscaledTime - _downedAt) : float.PositiveInfinity;
+
+        /// <summary>Teammates currently downed (for markers).</summary>
+        public static IEnumerable<byte> DownedPlayers => _downedPlayers;
 
         public static void Cycle(int dir)
         {
@@ -155,13 +183,14 @@ namespace TunicCoop
             }
             if (best != _reviveTarget) { _reviveTarget = best; _reviveProgress = 0; }
             if (best == 255) return;
-            _reviveProgress += Time.deltaTime / Mathf.Max(0.5f, Plugin.ReviveSeconds.Value);
+            _reviveProgress += Time.deltaTime / Mathf.Max(0.5f, HostSettings.ReviveSeconds);
             if (_reviveProgress >= 1f)
             {
                 _reviveProgress = 0; _reviveTarget = 255;
                 net.SendFlag(FlagKind.Revive, best.ToString(CultureInfo.InvariantCulture), net.LocalId.ToString(CultureInfo.InvariantCulture));
                 _downedPlayers.Remove(best);
                 CoopUI.Toast($"You revived {Name(best)}!", CoopUI.Kind.Good);
+                Sfx.Revive(pc.transform.position);
             }
         }
 
@@ -186,10 +215,10 @@ namespace TunicCoop
             var pc = PlayerCharacter.instance;
             if (heal && pc != null)
             {
-                try { pc.hp = Mathf.Max(1, Mathf.RoundToInt(pc.maxhp * Mathf.Clamp01(Plugin.ReviveHealthPercent.Value / 100f))); } catch { }
+                try { pc.hp = Mathf.Max(1, Mathf.RoundToInt(pc.maxhp * Mathf.Clamp01(HostSettings.ReviveHealthPercent / 100f))); } catch { }
             }
             _net?.SendFlag(FlagKind.PlayerUp, _net.LocalId.ToString(CultureInfo.InvariantCulture), "");
-            if (by != null) { Plugin.L.LogInfo($"[revive] revived by {by}"); CoopUI.Toast($"{by} revived you!", CoopUI.Kind.Good); }
+            if (by != null) { Plugin.L.LogInfo($"[revive] revived by {by}"); CoopUI.Toast($"{by} revived you!", CoopUI.Kind.Good); Sfx.Revive(pc != null ? pc.transform.position : Vector3.zero); }
         }
 
         /// <summary>TUNIC's own death (campfire respawn, bloodstain).</summary>
@@ -230,6 +259,9 @@ namespace TunicCoop
 
         /// <summary>Test hook: revive a downed player as if standing next to them.</summary>
         public static void ForceReviveLocal() { if (Downed) StandUp("a test", true); }
+
+        /// <summary>Test hook: go down as if a lethal hit landed.</summary>
+        public static void ForceDownLocal() { if (!Downed && AnyTeammateUp()) { try { var pc = PlayerCharacter.instance; if (pc != null) pc.hp = 1; } catch { } GoDown(); } }
 
         // ---------------- helpers ----------------
 

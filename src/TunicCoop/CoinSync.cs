@@ -144,7 +144,7 @@ namespace TunicCoop
         static void Take(Net net, Tracked t, byte by)
         {
             t.Taken = true;
-            Credit(t.Id, t.Item, t.Value);
+            if (HostSettings.ShareMoneyAndConsumables || by == net.LocalId) Credit(t.Id, t.Item, t.Value);
             Plugin.L.LogInfo($"[coin] {t.Id:X} taken by player {by}, +{t.Value} {t.Item}");
             net.SendFlag(FlagKind.CoinTaken, t.Id.ToString(CultureInfo.InvariantCulture), $"{t.Value}|{t.Item}|{by}");
             if (t.Go != null && t.Go.activeSelf) { _wasActive.Remove(t.Go.Pointer); Restore(t); t.Go.SetActive(false); }
@@ -221,7 +221,8 @@ namespace TunicCoop
         {
             int id = int.Parse(key, CultureInfo.InvariantCulture);
             var p = value.Split('|');
-            if (p.Length >= 2) Credit(id, p[1], int.Parse(p[0], CultureInfo.InvariantCulture));
+            bool mine = p.Length >= 3 && _net != null && p[2] == _net.LocalId.ToString(CultureInfo.InvariantCulture);
+            if (p.Length >= 2 && (HostSettings.ShareMoneyAndConsumables || mine)) Credit(id, p[1], int.Parse(p[0], CultureInfo.InvariantCulture));
             Remove(id);
         }
 
