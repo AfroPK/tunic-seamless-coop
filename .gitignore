@@ -1,0 +1,9 @@
+bin/
+obj/
+_downloads/
+*.zip
+test_shots/
+dist/
+tools/.seq
+tools/last-run.txt
+tools/rig.json

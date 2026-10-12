@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>TunicCoop</AssemblyName>
+    <Version>0.1.0</Version>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <!-- Point at your own TUNIC install; nothing from it is copied into this repo. -->
+    <TunicDir Condition="'$(TunicDir)' == ''">D:\SteamLibrary\steamapps\common\TUNIC</TunicDir>
+    <BepCore>$(TunicDir)\BepInEx\core</BepCore>
+    <Interop>$(TunicDir)\BepInEx\unhollowed</Interop>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="LiteNetLib" Version="1.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="$(BepCore)\0Harmony.dll" Private="false" />
+    <Reference Include="$(BepCore)\MonoMod.RuntimeDetour.dll" Private="false" />
+    <Reference Include="$(BepCore)\MonoMod.Utils.dll" Private="false" />
+    <Reference Include="$(BepCore)\BepInEx.Core.dll" Private="false" />
+    <Reference Include="$(BepCore)\BepInEx.IL2CPP.dll" Private="false" />
+    <Reference Include="$(BepCore)\UnhollowerBaseLib.dll" Private="false" />
+    <Reference Include="$(BepCore)\UnhollowerRuntimeLib.dll" Private="false" />
+    <Reference Include="$(Interop)\Assembly-CSharp.dll" Private="false" />
+    <Reference Include="$(Interop)\Il2Cppmscorlib.dll" Private="false" />
+    <Reference Include="$(Interop)\Il2CppSystem.dll" Private="false" />
+    <Reference Include="$(Interop)\UnityEngine.dll" Private="false" />
+    <Reference Include="$(Interop)\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="$(Interop)\UnityEngine.AnimationModule.dll" Private="false" />
+    <Reference Include="$(Interop)\UnityEngine.PhysicsModule.dll" Private="false" />
+    <Reference Include="$(Interop)\UnityEngine.InputLegacyModule.dll" Private="false" />
+    <Reference Include="$(Interop)\UnityEngine.AIModule.dll" Private="false" />
+    <Reference Include="$(Interop)\UnityEngine.ParticleSystemModule.dll" Private="false" />
+    <Reference Include="$(Interop)\UnityEngine.IMGUIModule.dll" Private="false" />
+    <Reference Include="$(Interop)\UnityEngine.TextRenderingModule.dll" Private="false" />
+    <Reference Include="$(Interop)\UnityEngine.ScreenCaptureModule.dll" Private="false" />
+    <Reference Include="$(Interop)\InControl.dll" Private="false" />
+    <Reference Include="$(Interop)\Unity.TextMeshPro.dll" Private="false" />
+    <Reference Include="$(Interop)\UnityEngine.UI.dll" Private="false" />
+    <Reference Include="$(Interop)\UnityEngine.UIModule.dll" Private="false" />
+    <Reference Include="$(Interop)\UnityEngine.ImageConversionModule.dll" Private="false" />
+  </ItemGroup>
+
+  <!-- Deploy: TunicCoop.dll + LiteNetLib.dll into BepInEx/plugins/TunicCoop -->
+  <Target Name="Deploy" AfterTargets="Build" Condition="'$(Deploy)' == 'true'">
+    <ItemGroup>
+      <DeployFiles Include="$(OutDir)TunicCoop.dll;$(OutDir)LiteNetLib.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(DeployFiles)" DestinationFolder="$(TunicDir)\BepInEx\plugins\TunicCoop" />
+  </Target>
+
+</Project>
