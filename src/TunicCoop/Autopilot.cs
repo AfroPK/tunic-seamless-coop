@@ -717,6 +717,7 @@ namespace TunicCoop
                     result = $"ok | scene={scene} departing={ScenePortal.DepartureSequenceRunning} pausing={ScenePortal.DepartureSequencePausingTime} loadLocked={SceneLoader.LoadingLocked} toLoad={SceneLoader.sceneNameToLoad} progress={F(SceneLoader.Progress)} timeScale={F(Time.timeScale)} cutsceneLocked={PlayerCharacter._cutsceneLocked}";
                     return true;
                 case "hookstats": result = "ok | " + HookProbe.Stats(); return true;
+                case "harmonystats": result = "ok | " + HarmonyProbe.Stats(); return true;
                 case "god":     // god on|off : TUNIC's own debug invincibility, so test setups near enemies survive
                     PlayerCharacter.DebugInvincible = c.Args.Length == 0 || c.Args[0] != "off";
                     result = "ok | invincible=" + PlayerCharacter.DebugInvincible;

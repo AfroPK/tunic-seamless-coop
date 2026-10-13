@@ -74,6 +74,23 @@ is out.
 
 **Use a dedicated co-op save.** When you join, your save takes on the host's world and inventory.
 
+## Uninstall
+
+Close TUNIC first. Your saves are never touched either way.
+
+**Easy way:** double-click **Uninstall.bat** from the mod's zip. It removes the mod and its settings, then asks
+whether to remove BepInEx too. If other BepInEx mods are installed (the TUNIC Randomizer, for example), it
+keeps BepInEx.
+
+**By hand**, in the TUNIC folder:
+
+1. Delete `BepInEx\plugins\TunicCoop` and `BepInEx\config\com.freddy.tuniccoop.cfg`. That's the whole mod.
+2. Optional, to get completely vanilla TUNIC back when no other mods use it: delete `BepInEx\`, `mono\`,
+   `winhttp.dll`, `doorstop_config.ini` and `changelog.txt`.
+
+Steam can also restore the vanilla game after step 2: right-click TUNIC → Properties → Installed Files → Verify
+integrity. Epic and GOG Galaxy have a similar Verify option.
+
 ## Play
 
 | Key | |

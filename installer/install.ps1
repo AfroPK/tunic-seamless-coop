@@ -1,7 +1,7 @@
 # TUNIC Seamless Co-op installer.
 # Finds TUNIC (Steam, Epic, GOG or a folder you pick), installs BepInEx 6.0.0-pre.1 (IL2CPP x64) if it isn't
 # there yet, and copies the mod. Run it with Install.bat (double-click), or:  powershell -ExecutionPolicy Bypass -File install.ps1
-param([string]$GameDir, [switch]$NoPause)
+param([string]$GameDir, [switch]$NoPause, [switch]$Uninstall, [switch]$RemoveBepInEx)
 
 $ErrorActionPreference = 'Stop'
 $BepUrl  = 'https://github.com/BepInEx/BepInEx/releases/download/v6.0.0-pre.1/BepInEx_UnityIL2CPP_x64_6.0.0-pre.1.zip'
@@ -63,6 +63,33 @@ if (-not $GameDir) {
 $GameDir = $GameDir.Trim('"', ' ')
 if (-not (Test-Path (Join-Path $GameDir 'Tunic.exe'))) { Say "No Tunic.exe in '$GameDir'. Nothing was changed." 'Red'; exit 1 }
 if (Get-Process Tunic -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith((Resolve-Path $GameDir).Path, [StringComparison]::OrdinalIgnoreCase) }) { Say 'Please close TUNIC first, then run the installer again.' 'Red'; exit 1 }
+
+if ($Uninstall) {
+    # Remove the mod (and its settings). Your saves are untouched.
+    $mod = Join-Path $GameDir 'BepInEx\plugins\TunicCoop'
+    $cfg = Join-Path $GameDir 'BepInEx\config\com.freddy.tuniccoop.cfg'
+    if (Test-Path $mod) { Remove-Item $mod -Recurse -Force; Say "Removed $mod" 'Green' } else { Say 'The mod was not installed in this folder.' }
+    if (Test-Path $cfg) { Remove-Item $cfg -Force; Say 'Removed the mod settings (com.freddy.tuniccoop.cfg).' }
+
+    # BepInEx itself: only if nothing else uses it.
+    $others = @(Get-ChildItem (Join-Path $GameDir 'BepInEx\plugins') -ErrorAction SilentlyContinue)
+    $bepFiles = 'BepInEx', 'mono', 'winhttp.dll', 'doorstop_config.ini', 'changelog.txt' | ForEach-Object { Join-Path $GameDir $_ } | Where-Object { Test-Path $_ }
+    if ($bepFiles.Count -gt 0) {
+        $remove = $RemoveBepInEx
+        if (-not $remove) {
+            if ($others.Count -gt 0) { Say "Other BepInEx mods are still installed ($(($others | ForEach-Object Name) -join ', ')), so BepInEx is kept." }
+            else { $remove = (Read-Host 'Also remove BepInEx (the mod loader) to get vanilla TUNIC back? (y/N)') -match '^[yY]' }
+        }
+        if ($remove) {
+            foreach ($p in $bepFiles) { Remove-Item $p -Recurse -Force }
+            Say 'Removed BepInEx. TUNIC is back to vanilla.' 'Green'
+        } elseif ($others.Count -eq 0) { Say 'BepInEx kept (it does nothing without mods).' }
+    }
+    Say ''
+    Say 'Done. Your saves were not touched.'
+    if (-not $NoPause -and $Host.Name -eq 'ConsoleHost') { Read-Host 'Press Enter to close' | Out-Null }
+    exit 0
+}
 
 # 1) BepInEx
 $bepCore = Join-Path $GameDir 'BepInEx\core\BepInEx.IL2CPP.dll'

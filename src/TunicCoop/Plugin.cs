@@ -81,13 +81,16 @@ namespace TunicCoop
             ClassInjector.RegisterTypeInIl2Cpp<Puppet>();
             ClassInjector.RegisterTypeInIl2Cpp<RootMotionSink>();
 
-            ChestSync.InstallHooks();
+            var harmonyProbe = Config.Bind("Debug", "HarmonyProbe", false,
+                "Count calls through plain Harmony postfixes (diagnostics; turns the native chest hook off). Developers only.").Value;
+            if (!harmonyProbe) ChestSync.InstallHooks();
             ReviveSystem.InstallHooks();
-            if (EnableHookProbe.Value) HookProbe.Install();
+            if (EnableHookProbe.Value && !harmonyProbe) HookProbe.Install();
 
             var harmony = new Harmony(Guid);
             try { harmony.PatchAll(typeof(Plugin).Assembly); }
             catch (System.Exception e) { Log.LogError("Harmony PatchAll failed: " + e); }
+            if (harmonyProbe) HarmonyProbe.Install(harmony);
             foreach (var m in harmony.GetPatchedMethods()) Log.LogInfo($"[harmony] patched {m.DeclaringType?.Name}.{m.Name}");
 
             var go = new GameObject("TunicCoop");

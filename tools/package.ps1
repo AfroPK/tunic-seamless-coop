@@ -20,7 +20,7 @@ $stage = "$root\dist\stage"
 Remove-Item $stage -Recurse -Force -EA SilentlyContinue
 $plug = New-Item -ItemType Directory -Force "$stage\BepInEx\plugins\TunicCoop"
 Copy-Item "$bin\TunicCoop.dll", "$bin\LiteNetLib.dll" $plug
-Copy-Item "$root\README.md", "$root\LICENSE", "$root\installer\Install.bat", "$root\installer\install.ps1" $stage
+Copy-Item "$root\README.md", "$root\LICENSE", "$root\installer\Install.bat", "$root\installer\Uninstall.bat", "$root\installer\install.ps1" $stage
 $thirdParty | Set-Content "$stage\THIRD_PARTY.txt"
 $zip = "$root\dist\TunicCoop-$ver.zip"
 Remove-Item $zip -EA SilentlyContinue
