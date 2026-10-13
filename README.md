@@ -16,7 +16,7 @@ bosses are shared, progress and items belong to the whole party, and a fallen fo
   player's own (host's choice).
 - **Shared enemies and bosses.** Bosses, their adds and the Cathedral gauntlet are fought together and stay in
   sync.
-- **Down, not out.** Instead of dying you go down and spectate your team until someone revives you.
+- **Down, not out.** Instead of dying you collapse and spectate your team until someone revives you; then your fox gets back up. The host can let downed players crawl toward help.
 - **Go to teammate.** F5 or the menu takes you to a friend, even in another area. You're told when someone
   walks into a boss arena.
 - **Pings and quick chat.** F3 marks a spot for everyone (with an arrow at the screen edge when it's off
