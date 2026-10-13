@@ -118,13 +118,16 @@ happened in plain words.
 
 ### Down, not out
 
-When a hit would kill you and a teammate is still up, you're **downed** instead. Your fox stays where it fell
-(red *DOWNED* nameplate, plus a marker for teammates) and your camera follows a teammate.
+When a hit would kill you and a teammate is still up, you're **downed** instead. Your fox collapses where it
+fell and stays lying down (red *DOWNED* nameplate, plus a marker for teammates), and your camera follows a
+teammate. When you're revived your fox plays its get-up animation and you get control back.
 
 - A teammate revives you by **standing next to you** for 3 seconds (they see a *Reviving …* bar). You get back
   up with half your health.
 - **Left / Right** switches who you watch. **Hold F2** to give up and respawn at your campfire.
 - If the host set a **bleed-out** time, you die for real when it runs out (a countdown shows).
+- If the host turned on **Crawl while down**, you can crawl slowly toward a teammate with the movement keys.
+  The camera then stays on your own fox; Left / Right still switches to watching your teammates.
 - If every player is down at the same time, everyone dies and respawns as usual.
 
 ### Host rules
@@ -137,6 +140,7 @@ Set by the host in **F1 → Rules**. They apply to everyone and change live.
 | Revive time | 3 s | How long a teammate stands next to you |
 | Health after revive | 50 % | |
 | Bleed-out | Never | Downed players die for real after 15/30/60/120 s without help |
+| Crawl while down | Off | Downed players can crawl slowly toward a teammate |
 | Enemy toughness | Vanilla | Enemies and bosses take +25…200 % longer to kill per extra player |
 | Money & consumables | Shared | *Each their own*: everyone keeps their own money, consumables and potions; items and upgrades stay shared |
 

@@ -159,7 +159,7 @@ function Reset-Session([double[]]$At = $null) {
         }
     }
     # Default host rules on both (rule tests change them, and config persists between runs).
-    foreach ($p in 'A', 'B') { foreach ($r in 'revive on', 'reviveSeconds 3', 'reviveHealth 50', 'bleedOut 0', 'enemyHealth 0', 'share on') { Do-Cmd $p "rule $r" 5 | Out-Null } }
+    foreach ($p in 'A', 'B') { foreach ($r in 'revive on', 'reviveSeconds 3', 'reviveHealth 50', 'bleedOut 0', 'enemyHealth 0', 'share on', 'crawl off') { Do-Cmd $p "rule $r" 5 | Out-Null } }
     Do-Cmd A 'host' 10; Do-Cmd B 'join' 10
     Do-Cmd B 'waitplayers 2 20' 30; Do-Cmd A 'waitplayers 2 20' 30
     if ($At) {

@@ -18,6 +18,7 @@ namespace TunicCoop
         public static int BleedOutSeconds;              // 0 = downed players wait forever
         public static int EnemyHealthPerExtraPlayer;    // % tougher per extra player, 0 = vanilla
         public static bool ShareMoneyAndConsumables = true;
+        public static bool DownedCrawl;                 // downed players can crawl slowly
 
         static bool _fromHost;
         public static bool FromHost => _fromHost;
@@ -32,6 +33,7 @@ namespace TunicCoop
             BleedOutSeconds = Plugin.BleedOutSeconds.Value;
             EnemyHealthPerExtraPlayer = Plugin.EnemyHealthPerExtraPlayer.Value;
             ShareMoneyAndConsumables = Plugin.ShareMoneyAndConsumables.Value;
+            DownedCrawl = Plugin.DownedCrawl.Value;
         }
 
         public static string Serialize()
@@ -45,6 +47,7 @@ namespace TunicCoop
                 "bleedOut=" + BleedOutSeconds.ToString(c),
                 "enemyHealth=" + EnemyHealthPerExtraPlayer.ToString(c),
                 "share=" + (ShareMoneyAndConsumables ? "1" : "0"),
+                "crawl=" + (DownedCrawl ? "1" : "0"),
             });
         }
 
@@ -67,6 +70,7 @@ namespace TunicCoop
                         case "bleedOut": BleedOutSeconds = Math.Max(0, int.Parse(v, c)); break;
                         case "enemyHealth": EnemyHealthPerExtraPlayer = Math.Max(0, Math.Min(300, int.Parse(v, c))); break;
                         case "share": ShareMoneyAndConsumables = v == "1"; break;
+                        case "crawl": DownedCrawl = v == "1"; break;
                     }
                 }
                 catch { }
@@ -80,7 +84,7 @@ namespace TunicCoop
         public static string Describe()
         {
             var sb = new StringBuilder();
-            sb.Append(Revive ? $"Revive on ({ReviveSeconds:0.#} s, {ReviveHealthPercent}% HP{(BleedOutSeconds > 0 ? $", bleed-out {BleedOutSeconds} s" : "")})" : "Revive off");
+            sb.Append(Revive ? $"Revive on ({ReviveSeconds:0.#} s, {ReviveHealthPercent}% HP{(BleedOutSeconds > 0 ? $", bleed-out {BleedOutSeconds} s" : "")}{(DownedCrawl ? ", crawling" : "")})" : "Revive off");
             sb.Append("  ·  ").Append(ShareMoneyAndConsumables ? "Shared money & consumables" : "Own money & consumables");
             sb.Append("  ·  ").Append(EnemyHealthPerExtraPlayer > 0 ? $"Enemies +{EnemyHealthPerExtraPlayer}% HP per extra player" : "Vanilla enemy health");
             return sb.ToString();

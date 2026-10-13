@@ -299,3 +299,9 @@ TODO: scene transitions (cross-scene ownership/puppets), player death/respawn in
 - Steam presence: steam_api64 is loaded from Tunic_Data/Plugins where Mono's DllImport can't find it: GetModuleHandle +
   GetProcAddress. UnityWebRequest's DownloadHandlerBuffer is stripped from the build: update check uses HttpWebRequest.
 - The manual's map pages have a YouAreHereMapper but the game never draws the marker in normal play: no map markers.
+
+## 0.2.1: downed pose, get-up, crawl rule, uninstall
+- The fox's own animator states: playing "die" once on EVERY layer that has it (0, 2, 3) holds the collapse; playing only layer 0 by full path left "Fox|hurt"/"wake up" showing, and re-playing every frame fought the synced layers. The "get up" state's clip is Fox|CUTSCENE_wake up.
+- The collapse's root motion makes a downed fox drift ~0.2 m/s: pin its position while downed (crawling moves the anchor).
+- Crawl: read MoveUp/Down/Left/Right PlayerActions ourselves (the game ignores input while _cutsceneLocked), move via CharacterController at 1.3 m/s, camera-relative.
+- Uninstall.bat / install.ps1 -Uninstall (keeps BepInEx when other plugins exist).

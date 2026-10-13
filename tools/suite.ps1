@@ -670,3 +670,37 @@ function Test-Relay([string]$Relay) {
     Report 'relay:join-with-internet-code' $ok "B players=$((Get-State B).net.players.Count); $($how -join ' / ')"
     foreach ($p in 'A', 'B') { Do-Cmd $p 'relay off' 5 | Out-Null }
 }
+
+# Downed pose + get-up, and the optional crawl rule.
+function Dist2D($p, $q) { [Math]::Sqrt([Math]::Pow($p[0] - $q[0], 2) + [Math]::Pow($p[2] - $q[2], 2)) }
+function Test-Crawl {
+    foreach ($p in 'A', 'B') { Do-Cmd $p 'god on' 5 | Out-Null }
+    Do-Cmd A 'rule crawl on' 5 | Out-Null; Start-Sleep 2
+    Tp A 8 0.6 -234 | Out-Null; Tp B 20 0.6 -232 | Out-Null; Start-Sleep 2
+    Do-Cmd B 'revive down' 5 | Out-Null; Start-Sleep 2.5
+    $rs = Revive-State B
+    Report 'crawl:downed-pose' ($rs -match 'downed=True' -and $rs -match 'pose=die') "B: $rs"
+    Report 'crawl:camera-on-self' ($rs -match 'spectating=255') "with crawling on the camera starts on your own fox: $rs"
+    Get-Shot A 'downed_seen_by_A' | Out-Null
+    $p0 = (Get-State B).player.pos
+    Do-Cmd B 'stick -1 0 3' 6 | Out-Null
+    $p1 = (Get-State B).player.pos; $d = Dist2D $p0 $p1
+    $rs = Revive-State B
+    Report 'crawl:moves-slowly' ($d -gt 1.5 -and $d -lt 6 -and $rs -match 'downed=True') ("crawled {0:F1} m in 3 s, still {1}" -f $d, ($rs -split ' ')[0])
+    Get-Shot B 'crawling_B' | Out-Null
+    # revive: get-up, then normal control
+    Tp A ($p1[0] - 1.2) $p1[1] $p1[2] | Out-Null
+    $got = $false
+    for ($i = 0; $i -lt 12 -and -not $got; $i++) { Start-Sleep 0.5; $got = (Revive-State B) -match 'pose=getup' }
+    Report 'crawl:get-up-on-revive' $got "B after revive: $(Revive-State B)"
+    Start-Sleep 2.5
+    $q0 = (Get-State B).player.pos; Do-Cmd B 'stick 1 0 1' 4 | Out-Null; $q1 = (Get-State B).player.pos
+    Report 'crawl:control-back' ((Dist2D $q0 $q1) -gt 2) ("walked {0:F1} m in 1 s after getting up" -f (Dist2D $q0 $q1))
+    # rule off: downed players stay put
+    Do-Cmd A 'rule crawl off' 5 | Out-Null; Start-Sleep 2
+    Tp A 8 0.6 -234 | Out-Null; Tp B 20 0.6 -232 | Out-Null; Start-Sleep 1
+    Do-Cmd B 'revive down' 5 | Out-Null; Start-Sleep 2
+    $p0 = (Get-State B).player.pos; Do-Cmd B 'stick -1 0 2' 5 | Out-Null; $p1 = (Get-State B).player.pos
+    Report 'crawl:off-means-still' ((Dist2D $p0 $p1) -lt 0.3) ("moved {0:F2} m with the rule off" -f (Dist2D $p0 $p1))
+    Do-Cmd B 'revive force' 5 | Out-Null
+}

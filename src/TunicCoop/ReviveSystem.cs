@@ -127,6 +127,7 @@ namespace TunicCoop
         public static void Tick(Net net, string scene)
         {
             _net = net; _scene = scene;
+            if (!Downed) TickGetUp();
             if (net == null || !net.Connected || net.LocalId == 255) { if (Downed) StandUp(null, false); _downedPlayers.Clear(); return; }
             foreach (var id in new List<byte>(_downedPlayers)) if (!net.Players.ContainsKey(id)) _downedPlayers.Remove(id);
 
@@ -143,9 +144,13 @@ namespace TunicCoop
             // everyone down → the session's real death
             if (!AnyTeammateUp()) { CoopUI.Toast("Everyone is down…", CoopUI.Kind.Bad); ReallyDie(); return; }
 
-            // keep spectating someone valid in this scene
+            HoldDownedPose(pc);
+            if (HostSettings.DownedCrawl) Crawl(pc); else Crawling = false;
+            PinDowned(pc);
+
+            // keep spectating someone valid in this scene (with crawling on, "yourself" is a valid choice and the default)
             var cands = SpectateCandidates();
-            if (_spectating == 255 || !cands.Contains(_spectating)) _spectating = cands.Count > 0 ? cands[0] : (byte)255;
+            if (!cands.Contains(_spectating)) _spectating = cands.Count > 0 ? cands[0] : (byte)255;
             bool left = false, right = false, give = false;
             try { left = Input.GetKeyDown(KeyCode.LeftArrow); right = Input.GetKeyDown(KeyCode.RightArrow); give = Input.GetKey(KeyCode.F2); } catch { }
             if (left) Cycle(-1); if (right) Cycle(+1);
@@ -153,6 +158,113 @@ namespace TunicCoop
             if (_giveUpHeld >= 1.5f) { CoopUI.Toast("Respawning at your campfire"); ReallyDie(); return; }
             // host rule: bleed out after a while without help
             if (HostSettings.BleedOutSeconds > 0 && BleedOutLeft <= 0f) { CoopUI.Toast("You bled out", CoopUI.Kind.Bad); ReallyDie(); }
+        }
+
+        // ---------------- downed pose, get-up and crawling ----------------
+        // The fox's own animator states: "die" (collapse, ends lying down) is held while downed, "get up" plays on a
+        // revive. Played directly (not via the "death" trigger) so none of the game's death logic runs. Teammates
+        // see it through the normal animation sync.
+        static readonly int DieHash = Animator.StringToHash("Base Layer.die");
+        static readonly int GetUpHash = Animator.StringToHash("Base Layer.get up");
+        const float CrawlSpeed = 1.3f;      // m/s; walking is ~5
+        static float _getUpUntil;
+        static List<InControl.PlayerAction> _move;   // MoveUp, MoveDown, MoveLeft, MoveRight
+        public static bool Crawling { get; private set; }
+
+        static readonly int DieShort = Animator.StringToHash("die"), GetUpShort = Animator.StringToHash("get up");
+
+        /// <summary>Play a base-layer state (layers 2-3, "Exhausted"/"Wading", are synced copies of the base layer
+        /// with weight 0: touching them disturbs the base layer).</summary>
+        static void PlayState(PlayerCharacter pc, int shortHash, float at)
+        {
+            try
+            {
+                var an = pc != null ? pc.cachedAnimator : null;
+                if (an == null) return;
+                for (int l = 0; l < an.layerCount; l++) if (an.HasState(l, shortHash)) an.Play(shortHash, l, at);
+            }
+            catch { }
+        }
+
+        static float _nextPoseCheck;
+        static string BaseClip(Animator an)
+        {
+            try { var ci = an.GetCurrentAnimatorClipInfo(0); return ci.Length > 0 && ci[0].clip != null ? ci[0].clip.name : ""; } catch { return ""; }
+        }
+
+        /// <summary>Twice a second: if something knocked the fox out of the collapse, lie back down (at the end of
+        /// the clip, so it doesn't fall again).</summary>
+        static void HoldDownedPose(PlayerCharacter pc)
+        {
+            try
+            {
+                var an = pc != null ? pc.cachedAnimator : null;
+                if (an == null || Time.unscaledTime < _nextPoseCheck || Time.unscaledTime - _downedAt < 2.5f) return;
+                _nextPoseCheck = Time.unscaledTime + 0.5f;
+                if (an.IsInTransition(0) || BaseClip(an) == "Fox|die") return;
+                PlayState(pc, DieShort, 0.98f);
+                _poseFixes++;
+            }
+            catch { }
+        }
+        static int _poseFixes;
+
+        static void Crawl(PlayerCharacter pc)
+        {
+            Crawling = false;
+            if (pc == null || CoopUI.MenuOpen) return;
+            try
+            {
+                if (_move == null)
+                {
+                    var set = PlayerInput.Actions; if (set == null) return;
+                    var byName = new Dictionary<string, InControl.PlayerAction>();
+                    foreach (var a in set.actions) if (a != null) byName[a.Name] = a;
+                    if (!byName.ContainsKey("MoveUp") || !byName.ContainsKey("MoveDown") || !byName.ContainsKey("MoveLeft") || !byName.ContainsKey("MoveRight")) return;
+                    _move = new List<InControl.PlayerAction> { byName["MoveUp"], byName["MoveDown"], byName["MoveLeft"], byName["MoveRight"] };
+                }
+                float y = _move[0].Value - _move[1].Value, x = _move[3].Value - _move[2].Value;
+                var input = new Vector2(x, y);
+                if (input.sqrMagnitude < 0.04f) return;
+                // screen-relative, like normal walking
+                var fwd = CameraController.MainCameraForward; fwd.y = 0;
+                var right = CameraController.MainCameraRight; right.y = 0;
+                var dir = (right.normalized * x + fwd.normalized * y);
+                if (dir.sqrMagnitude < 1e-4f) return;
+                float dt = Mathf.Min(Time.deltaTime, 0.1f);
+                var step = dir.normalized * (CrawlSpeed * Mathf.Min(1f, input.magnitude) * dt);
+                var cc = pc.GetComponent<CharacterController>();
+                if (cc != null && cc.enabled) cc.Move(step + Vector3.down * 4f * dt);   // collisions + stay on the ground
+                else pc.transform.position += step;
+                pc.transform.rotation = Quaternion.Slerp(pc.transform.rotation, Quaternion.LookRotation(dir.normalized), 1f - Mathf.Exp(-8f * dt));
+                Crawling = true;
+            }
+            catch (Exception e) { Plugin.L.LogWarning("[revive] crawl: " + e.Message); _move = null; }
+        }
+
+        static string PoseName()
+        {
+            try { var an = PlayerCharacter.instance?.cachedAnimator; if (an == null) return "?"; var n = BaseClip(an); return n == "Fox|die" ? "die" : (n == "Fox|get up" || n == "Fox|CUTSCENE_wake up") ? "getup" : "other(" + n + ")"; } catch { return "?"; }
+        }
+
+        /// <summary>A downed fox stays where it fell: the collapse's root motion and leftover physics otherwise
+        /// make it drift. Crawling moves the anchor along.</summary>
+        static Vector3 _anchor; static bool _haveAnchor;
+        static void PinDowned(PlayerCharacter pc)
+        {
+            if (pc == null) return;
+            var p = pc.transform.position;
+            if (!_haveAnchor || Crawling || Time.unscaledTime - _downedAt < 0.3f) { _anchor = p; _haveAnchor = true; return; }
+            var d = new Vector2(p.x - _anchor.x, p.z - _anchor.z);
+            if (d.sqrMagnitude > 0.0004f) pc.transform.position = new Vector3(_anchor.x, p.y, _anchor.z);
+        }
+
+        /// <summary>After the get-up animation, give control back.</summary>
+        static void TickGetUp()
+        {
+            if (_getUpUntil <= 0f || Time.unscaledTime < _getUpUntil) return;
+            _getUpUntil = 0f;
+            PlayerCharacter._cutsceneLocked = _prevLock;
         }
 
         /// <summary>Seconds until a downed player bleeds out (only with the host's bleed-out rule).</summary>
@@ -200,8 +312,10 @@ namespace TunicCoop
         {
             if (Downed) return;
             Downed = true; _downedAt = Time.unscaledTime; _giveUpHeld = 0;
-            _prevLock = PlayerCharacter._cutsceneLocked;
+            if (_getUpUntil <= 0f) _prevLock = PlayerCharacter._cutsceneLocked;   // (still locked from a get-up: keep the real value)
+            _getUpUntil = 0f; _haveAnchor = false;
             _spectating = 255;
+            PlayState(PlayerCharacter.instance, DieShort, 0f);   // collapse
             Plugin.L.LogInfo("[revive] downed");
             _net?.SendFlag(FlagKind.PlayerDown, _net.LocalId.ToString(CultureInfo.InvariantCulture), "");
             CoopUI.Toast("You're down! A teammate can revive you.", CoopUI.Kind.Bad);
@@ -210,9 +324,15 @@ namespace TunicCoop
         /// <summary>Back on your feet (revived), or leaving the downed state for a real death.</summary>
         static void StandUp(string by, bool heal)
         {
-            Downed = false; _spectating = 255; _camShift = Vector3.zero;
-            PlayerCharacter._cutsceneLocked = _prevLock;
+            Downed = false; _spectating = 255; _camShift = Vector3.zero; Crawling = false;
             var pc = PlayerCharacter.instance;
+            if (heal)
+            {
+                // revived: play the get-up, controls come back when it's done
+                PlayState(pc, GetUpShort, 0f);
+                _getUpUntil = Time.unscaledTime + 1.4f;
+            }
+            else PlayerCharacter._cutsceneLocked = _prevLock;
             if (heal && pc != null)
             {
                 try { pc.hp = Mathf.Max(1, Mathf.RoundToInt(pc.maxhp * Mathf.Clamp01(HostSettings.ReviveHealthPercent / 100f))); } catch { }
@@ -280,6 +400,7 @@ namespace TunicCoop
                 if (p.PlayerId != 250 && p.gameObject.activeSelf && p.Latest != null && p.Latest.Scene == _scene && !_downedPlayers.Contains(p.PlayerId))
                     l.Add(p.PlayerId);
             l.Sort();
+            if (HostSettings.DownedCrawl) l.Insert(0, 255);   // 255 = your own fox, first: you can crawl, so you need to see it
             return l;
         }
 
@@ -306,6 +427,6 @@ namespace TunicCoop
             return l;
         }
 
-        public static string Describe() => $"downed={Downed} spectating={_spectating} downedPlayers=[{string.Join(",", _downedPlayers)}] revive={_reviveTarget}:{_reviveProgress:F2} camShift={_camShift}";
+        public static string Describe() => $"downed={Downed} crawling={Crawling} pose={PoseName()} poseFixes={_poseFixes} spectating={_spectating} downedPlayers=[{string.Join(",", _downedPlayers)}] revive={_reviveTarget}:{_reviveProgress:F2} camShift={_camShift}";
     }
 }

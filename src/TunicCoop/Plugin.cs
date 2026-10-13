@@ -12,7 +12,7 @@ namespace TunicCoop
     public class Plugin : BasePlugin
     {
         public const string Guid = "com.freddy.tuniccoop";
-        public const string Version = "0.2.0";
+        public const string Version = "0.2.1";
         public const int ProtocolVersion = 3;
         public const int HardPlayerCap = 8;
 
@@ -26,6 +26,7 @@ namespace TunicCoop
         internal static ConfigEntry<int> BleedOutSeconds;
         internal static ConfigEntry<int> EnemyHealthPerExtraPlayer;
         internal static ConfigEntry<bool> ShareMoneyAndConsumables;
+        internal static ConfigEntry<bool> DownedCrawl;
         internal static ConfigEntry<string> JoinAddress;
         internal static ConfigEntry<int> Port;
         internal static ConfigEntry<int> MaxPlayers;
@@ -51,6 +52,7 @@ namespace TunicCoop
             BleedOutSeconds = Config.Bind("Gameplay", "BleedOutSeconds", 0, new ConfigDescription("Downed players die for real after this many seconds without a revive. 0 = no time limit.", new AcceptableValueRange<int>(0, 600)));
             EnemyHealthPerExtraPlayer = Config.Bind("Gameplay", "EnemyHealthPerExtraPlayer", 0, new ConfigDescription("Enemies and bosses take this much longer to kill (in %) for every player beyond the first. 0 = vanilla. Host decides.", new AcceptableValueRange<int>(0, 300)));
             ShareMoneyAndConsumables = Config.Bind("Gameplay", "ShareMoneyAndConsumables", true, "true: one party purse and shared consumables. false: everyone keeps their own money, consumables and potions (items and upgrades stay shared). Host decides.");
+            DownedCrawl = Config.Bind("Gameplay", "DownedCrawl", false, "Downed players can crawl slowly (movement keys) toward a teammate. Host decides.");
             StreamerMode = Config.Bind("Privacy", "StreamerMode", false,
                 "Hide IP addresses everywhere on screen (panel, messages, menu) so they never show on stream. Toggle in the F1 menu.");
             NameChosen = Config.Bind("Player", "NameChosen", false, "Set once you have picked a name in the F1 menu.");

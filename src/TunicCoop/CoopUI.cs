@@ -562,6 +562,7 @@ namespace TunicCoop
                 var elsewhere = ReviveSystem.ElsewhereUp();
                 string spec = ReviveSystem.Spectating != 255
                     ? $"Spectating <color=#FFC75A>{ReviveSystem.Name(ReviveSystem.Spectating)}</color>   ·   Left / Right to switch"
+                    : HostSettings.DownedCrawl ? "Crawl toward a teammate with the movement keys   ·   Left / Right to watch them"
                     : (elsewhere.Count > 0 ? "No teammate in this area. Up elsewhere: " + string.Join(", ", elsewhere) : "Waiting for a teammate…");
                 _downedSub.text = spec + "\nA teammate can revive you by standing next to you   ·   hold F2 to respawn at your campfire";
             }
@@ -668,6 +669,9 @@ namespace TunicCoop
                     l.Add(new Item { Label = "Bleed-out", Value = () => { int v = CanEditRules ? Plugin.BleedOutSeconds.Value : HostSettings.BleedOutSeconds; return v == 0 ? "‹ Never ›" : $"‹ {v} s ›"; },
                                      Change = d => { Plugin.BleedOutSeconds.Value = Step(Plugin.BleedOutSeconds.Value, d, new[] { 0, 15, 30, 60, 120 }); RulesChanged(); }, Enabled = () => CanEditRules,
                                      Help = "A downed player dies for real after this long without help." });
+                    l.Add(new Item { Label = "Crawl while down", Value = () => Toggle(CanEditRules ? Plugin.DownedCrawl.Value : HostSettings.DownedCrawl),
+                                     Change = d => { Plugin.DownedCrawl.Value = !Plugin.DownedCrawl.Value; RulesChanged(); }, Enabled = () => CanEditRules,
+                                     Help = "Downed players can crawl slowly toward a teammate with the movement keys." });
                     l.Add(new Item { Label = "Enemy toughness", Value = () => { int v = CanEditRules ? Plugin.EnemyHealthPerExtraPlayer.Value : HostSettings.EnemyHealthPerExtraPlayer; return v == 0 ? "‹ Vanilla ›" : $"‹ +{v}% per extra player ›"; },
                                      Change = d => { Plugin.EnemyHealthPerExtraPlayer.Value = Step(Plugin.EnemyHealthPerExtraPlayer.Value, d, new[] { 0, 25, 50, 75, 100, 150, 200 }); RulesChanged(); }, Enabled = () => CanEditRules,
                                      Help = "Enemies and bosses take longer to kill with more players (applies to enemies met after the change)." });

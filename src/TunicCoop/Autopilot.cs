@@ -490,6 +490,7 @@ namespace TunicCoop
                             case "bleedOut": Plugin.BleedOutSeconds.Value = (int)Fl(c, 1, 0); break;
                             case "enemyHealth": Plugin.EnemyHealthPerExtraPlayer.Value = (int)Fl(c, 1, 0); break;
                             case "share": Plugin.ShareMoneyAndConsumables.Value = v == "on" || v == "1"; break;
+                            case "crawl": Plugin.DownedCrawl.Value = v == "on" || v == "1"; break;
                         }
                         if (net != null && net.Active && net.IsHost) mgr.SendSettings(); else HostSettings.LoadLocal();
                     }
@@ -717,6 +718,52 @@ namespace TunicCoop
                     result = $"ok | scene={scene} departing={ScenePortal.DepartureSequenceRunning} pausing={ScenePortal.DepartureSequencePausingTime} loadLocked={SceneLoader.LoadingLocked} toLoad={SceneLoader.sceneNameToLoad} progress={F(SceneLoader.Progress)} timeScale={F(Time.timeScale)} cutsceneLocked={PlayerCharacter._cutsceneLocked}";
                     return true;
                 case "hookstats": result = "ok | " + HookProbe.Stats(); return true;
+                case "clips":   // clips [filter] : animation clips in the fox's animator controller
+                {
+                    var ctl = pc != null && pc.cachedAnimator != null ? pc.cachedAnimator.runtimeAnimatorController : null;
+                    if (ctl == null) { result = "fail | no animator"; return true; }
+                    var names = new SortedSet<string>();
+                    foreach (var clip in ctl.animationClips) if (clip != null && (c.Args.Length == 0 || clip.name.IndexOf(c.Args[0], StringComparison.OrdinalIgnoreCase) >= 0)) names.Add($"{clip.name}({clip.length:F1}s)");
+                    result = $"ok | {names.Count}: " + string.Join(", ", names); return true;
+                }
+                case "animprobe": // animprobe : fox animator parameters + which candidate state names exist + current state
+                {
+                    var an = pc != null ? pc.cachedAnimator : null;
+                    if (an == null) { result = "fail | no animator"; return true; }
+                    var ps = new List<string>();
+                    foreach (var prm in an.parameters) ps.Add($"{prm.name}:{prm.type}");
+                    var found = new List<string>();
+                    foreach (var n in new[] { "die", "Die", "death", "Death", "dead", "Dead", "dying", "kneel", "Kneel", "get up", "Get Up", "getup", "get_up", "exhausted", "Exhausted", "character exhausted", "Fox|die", "Fox|kneel", "Fox|get up", "hurt", "stagger", "idle", "Idle", "sleeping", "CUTSCENE_sleeping", "wake up", "resurrection" })
+                        for (int layer = 0; layer < an.layerCount; layer++)
+                        {
+                            if (an.HasState(layer, Animator.StringToHash(n))) found.Add($"{n}@L{layer}");
+                            string full = an.GetLayerName(layer) + "." + n;
+                            if (an.HasState(layer, Animator.StringToHash(full))) found.Add(full);
+                        }
+                    var st = an.GetCurrentAnimatorStateInfo(0);
+                    var cl = an.GetCurrentAnimatorClipInfo(0);
+                    result = $"ok | layers={an.layerCount} states=[{string.Join(", ", found)}] now={st.fullPathHash}/{(cl.Length > 0 ? cl[0].clip.name : "-")} params=[{string.Join(", ", ps)}]";
+                    return true;
+                }
+                case "anim":    // anim layers | anim trigger <name> | anim play <state> : animator experiments
+                {
+                    var an = pc != null ? pc.cachedAnimator : null;
+                    if (an == null) { result = "fail | no animator"; return true; }
+                    string sub = c.Args.Length > 0 ? c.Args[0] : "layers";
+                    string arg = c.Args.Length > 1 ? string.Join(" ", c.Args, 1, c.Args.Length - 1) : "";
+                    if (sub == "trigger") an.SetTrigger(arg);
+                    if (sub == "lock") PlayerCharacter._cutsceneLocked = arg == "on";
+                    if (sub == "hp") pc.hp = int.Parse(arg, CultureInfo.InvariantCulture);
+                    if (sub == "play") for (int l = 0; l < an.layerCount; l++) if (an.HasState(l, Animator.StringToHash(arg))) an.Play(Animator.StringToHash(arg), l, 0f);
+                    var parts = new List<string>();
+                    for (int l = 0; l < an.layerCount; l++)
+                    {
+                        var st = an.GetCurrentAnimatorStateInfo(l); var ci = an.GetCurrentAnimatorClipInfo(l);
+                        parts.Add($"L{l} {an.GetLayerName(l)} w={an.GetLayerWeight(l):F2} clip={(ci.Length > 0 ? ci[0].clip.name : "-")} t={st.normalizedTime:F2}");
+                    }
+                    int animators = pc.GetComponentsInChildren<Animator>(true).Length;
+                    result = $"ok | animators={animators} speed={an.speed} rootMotion={an.applyRootMotion} | " + string.Join(" ; ", parts); return true;
+                }
                 case "harmonystats": result = "ok | " + HarmonyProbe.Stats(); return true;
                 case "god":     // god on|off : TUNIC's own debug invincibility, so test setups near enemies survive
                     PlayerCharacter.DebugInvincible = c.Args.Length == 0 || c.Args[0] != "off";

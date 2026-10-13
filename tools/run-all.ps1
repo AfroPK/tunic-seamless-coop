@@ -3,7 +3,7 @@
 $out = "$PSScriptRoot\last-run.txt"
 "run started $(Get-Date -Format o)" | Set-Content $out
 Backup-Saves | Add-Content $out          # tests write to the save slot they load: keep a copy first
-$tests = 'Test-Combat', 'Test-Aggro', 'Test-Coins', 'Test-Chest90', 'Test-Scenes', 'Test-Death', 'Test-Revive',
+$tests = 'Test-Combat', 'Test-Aggro', 'Test-Coins', 'Test-Chest90', 'Test-Scenes', 'Test-Death', 'Test-Revive', 'Test-Crawl',
          'Test-HostRules', 'Test-Scaling', 'Test-Signals', 'Test-SharedCam', 'Test-Regroup', 'Test-Connect', 'Test-Rejoin',
          'Test-Gauntlet', 'Test-Bosses', 'Test-Relay', 'Test-ThreePlayers'
 foreach ($t in $tests) {
